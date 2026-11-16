@@ -1,6 +1,6 @@
 # xueer-speaker · AGENTS
 
-让小爱音箱替 AI 开口：Go 服务（MCP、面板、`/v1/say`）+ Windows 托盘，不刷机。本仓是公开开源版。
+让小爱音箱替 AI 开口：一个 Go 程序，可以直接用（直连小米、小爱原声、本机 MCP），也可以跑成服务（晓晓、面板、`/v1/say`）；外加 Windows 托盘。不刷机。本仓是公开开源版。
 
 ## 先读
 
@@ -18,6 +18,7 @@ go run ./cmd/xueer-speaker serve -data ./data -cache ./data/cache -public 127.0.
 
 - `internal/xiaomi` 是唯一和小米云打交道的地方；`internal/conductor` 是唯一直接操作音箱的地方，其他包只发事件给它。
 - `internal/server` 只做 HTTP、登录和 MCP，调下层；面板静态文件在 `internal/server/web`。
+- MCP 工具只在 `internal/tools` 定义一次：服务和直接用（`cmd/xueer-speaker/direct.go`）各实现 `tools.Backend`。加功能就给 `speaker` 加一个 action，不要再加新工具。
 - 电脑端：`internal/pcmouth`（服务器这头）↔ `internal/pcagent` + `cmd/xueer-speaker-pc`（Go 引擎）↔ `pc/`（C# 托盘）。
 
 ## 禁止

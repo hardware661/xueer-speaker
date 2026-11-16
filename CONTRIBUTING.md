@@ -6,7 +6,9 @@
 
 | 目录 | 内容 |
 | --- | --- |
-| `cmd/xueer-speaker` | 服务、排障命令行、给 stdio 客户端用的 `mcp-local` |
+| `cmd/xueer-speaker` | 一个程序：直接用（`direct.go`：login / say / dnd / mcp …）、服务（`serve.go`）、排障命令、`mcp-local` |
+| `internal/tools` | 两个 MCP 工具（`speaker_say`、`speaker`）只定义一次，服务和直接用共用 |
+| `internal/control` | 共用的规矩：哪些话不能让小爱做、勿扰到几点、勿扰期间怎么攒话 |
 | `internal/xiaomi` | 小米云：密码与验证码登录、续期、MiNA、MIoT、蓝牙；小米的坑都关在这里 |
 | `internal/conductor` | 唯一直接操作音箱的地方，播报、放歌、口令都发事件给它 |
 | `internal/announcer` | 限流、去重、合成失败退回原声 |
@@ -31,7 +33,7 @@ go run ./cmd/xueer-speaker serve -data ./data -cache ./data/cache -public 127.0.
 gofmt -l . && go vet ./... && GOOS=windows go vet ./... && go test -race ./...
 ```
 
-- 测试里的小米云是假的（`internal/xiaomi/fake_test.go`），照真实接口的行为写。改登录或接口时先在这里加上新行为。
+- 测试里的小米云是假的（`internal/xiaomi/xiaomitest`），照真实接口的行为写。改登录或接口时先在这里加上新行为。
 - 改了托盘，请在 Windows 上按 `pc/README.md` 编一次。
 - 修 bug 时请先写一个能复现问题的测试，确认它失败，再修。
 

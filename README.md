@@ -1,22 +1,83 @@
 # 雪儿 speaker
 
-**AI 干完活，让家里的小爱音箱叫你。** 在 WSL 或终端里跑 Claude Code、Codex 这类 AI 助手，任务一跑就是几分钟。人走开了，它做完、出错或者需要你拍板时，音箱会用「晓晓」的声音念一句，例如「博客那边改好了，可以直接用」。
+**AI 干完活，让家里的小爱音箱叫你。** 在 WSL 或终端里跑 Claude Code、Codex 这类 AI 助手，任务一跑就是几分钟。人走开了，它做完、出错或者需要你拍板时，音箱会念一句，例如「博客那边改好了，可以直接用」。
 
 不刷机，原生小爱的功能都还在。
 
-![面板：说过的话、定时和音量](docs/screenshots/panel.webp)
-
 ## 能做什么
 
-- **AI 叫你。** 内置 MCP 服务，AI 客户端加上就有 `speaker_say`（念一句）和 `speaker_status`（音箱状态）两个工具。面板「设置 → 接入」里有 Claude Code、Codex 等客户端的配置，复制就能用。
-- **好听，不吵。** 用 Edge 的晓晓音色，合成失败时换成小爱原声。同一句话 10 秒内不重复念，每个来源一分钟最多 6 句。
-- **面板。** 手机电脑都能打开：随手念一句、调音量、设定时说一句，看看 AI 都说过什么。
+- **AI 叫你。** AI 客户端加上就有两个工具：`speaker_say`（念一句）和 `speaker`（看状态、调音量、勿扰、让小爱做事）。
+- **调音量。** 半夜念之前调小，太小听不见就调大。
+- **勿扰。** 交代完任务去睡觉，AI 打开勿扰；夜里做完的事照样记着，不出声；你回来时它关掉，告诉你攒了几句。
+- **让小爱做事。** 「明天早上八点叫我」「十分钟后提醒我关火」「把客厅灯关了」，AI 替你跟小爱说。只用于闹钟、提醒、查信息和家里的设备，买东西、付款、打电话、发消息一律拒绝。
+- **不吵。** 同一句话 10 秒内不重复念，一分钟最多 6 句。
 
-还有几项可选功能，不配置就不出现，见后面的[进阶](#进阶可选)：电脑开着时从电脑出声（Windows 托盘）、给脚本用的 `/v1/say`、接 [Husic](https://github.com/hardware661/Husic) 喊一句放歌。
+## 两种用法
 
-## 三步用起来
+| | 直接用（推荐先试） | 放在服务里跑 |
+| --- | --- | --- |
+| 要装什么 | 一个程序，几 MB | Docker，和音箱在同一个局域网、一直开着 |
+| 声音 | 小爱原声 | 「晓晓」音色（不行时换小爱原声） |
+| 多出来的 | — | 网页面板、定时、电脑开着时从电脑出声、给脚本用的 `/v1/say`、接 Husic 放歌 |
 
-需要一台和音箱在**同一个局域网**的机器（NAS、旧电脑、树莓派都行），装好 Docker：
+先直接用，觉得原声不够好听、想要面板，再换成服务。两种用法的 AI 工具一模一样。
+
+## 直接用：三步
+
+**1. 装程序**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hardware661/xueer-speaker/master/install.sh | sh
+```
+
+Windows 到 [Releases](https://github.com/hardware661/xueer-speaker/releases) 下载 `xueer-speaker-windows-amd64.exe`，改名成 `xueer-speaker.exe`。
+
+**2. 登录小米**
+
+```bash
+xueer-speaker login     # 输入音箱绑定的小米账号、密码；收到短信验证码就填；账号下有几台音箱就选一台
+xueer-speaker test      # 自检：一步一步试，最后让小爱念一句
+```
+
+登录信息存在 `~/.config/xueer-speaker/`（Windows 是 `%AppData%\xueer-speaker\`），只在你自己的电脑上。
+
+**3. 交给 AI**
+
+```bash
+claude mcp add speaker -- xueer-speaker mcp          # Claude Code
+```
+
+Codex（`~/.codex/config.toml`）：
+
+```toml
+[mcp_servers.speaker]
+command = "xueer-speaker"
+args = ["mcp"]
+```
+
+然后在给 AI 的规则里（如 `CLAUDE.md`、`AGENTS.md`）加两句：
+
+```
+每次回复我之前调用一次 speaker_say，说清是哪个项目、结果怎样。
+我说要去睡觉时用 speaker 打开勿扰（到我说的起床时间）；我回来说话时先关掉勿扰再汇报。
+```
+
+工具说明里已经写好了怎么说话：先说项目、再说结果，坏消息直说，80 字以内。
+
+**命令行也能直接用：**
+
+| 命令 | 做什么 |
+| --- | --- |
+| `xueer-speaker say 做好了` | 念一句 |
+| `xueer-speaker volume` / `volume 40` | 读 / 设音量 |
+| `xueer-speaker do 明天八点叫我` | 让小爱做事（加 `--silent` 做完不出声） |
+| `xueer-speaker dnd on --until 08:00` / `dnd off` | 勿扰 |
+| `xueer-speaker status` | 登录、音箱、音量、勿扰 |
+| `xueer-speaker test` | 自检 |
+
+## 放在服务里跑
+
+想要晓晓的声音和网页面板时用。需要一台和音箱在**同一个局域网**、一直开着的机器（NAS、旧电脑、树莓派都行），装好 Docker：
 
 ```bash
 git clone https://github.com/hardware661/xueer-speaker.git && cd xueer-speaker
@@ -25,26 +86,24 @@ docker compose logs speaker | grep setup_code   # 记下 6 位初始化码
 ```
 
 1. 用手机或电脑打开 `http://<这台机器的局域网 IP>:8100`，填初始化码，设一个面板密码。
-2. 在「设置 → 小米」登录音箱绑定的小米账号，收到短信验证码就填进去，然后选一台音箱。
+2. 在「设置 → 小米」登录音箱绑定的小米账号，收到短信验证码就填进去，选一台音箱，点「测试一下」。
 3. 在「设置 → 接入」复制配置，交给你的 AI 客户端。
 
-试一下：面板右下角输入「你好」，音箱就会说话。
+> 第一次打开面板时请用局域网 IP 访问，不要用 `localhost`：晓晓的语音要让音箱按这个地址来取。地址不对的话，在「设置 → 接入」最下面改。
 
-> 第一次打开面板时请用局域网 IP 访问，不要用 `localhost`：音箱要按这个地址来取语音。地址不对的话，在「设置 → 接入」最下面改。
+为什么要同一个局域网：晓晓的声音是在服务里生成的音频，要让音箱自己来取；小爱原声不用取文件，所以直接用就不需要这些。
+
+![面板：说过的话、定时和音量](docs/screenshots/panel.webp)
+
+面板顶上的「勿扰」点一下就能开关。
 
 ![设置 → 接入：复制给 AI 客户端的配置](docs/screenshots/connect.webp)
 
-## 接入 AI
-
-面板「设置 → 接入」里的配置已经带好地址和钥匙，下面只是说明长什么样。
-
-**Claude Code**
+面板「设置 → 接入」里的配置已经带好地址和钥匙，大概长这样：
 
 ```bash
 claude mcp add --transport http speaker http://192.168.1.10:8100/mcp --header "Authorization: Bearer <钥匙>"
 ```
-
-**Codex**（`~/.codex/config.toml`）
 
 ```toml
 [mcp_servers.speaker]
@@ -52,19 +111,11 @@ url = "http://192.168.1.10:8100/mcp"
 http_headers = { Authorization = "Bearer <钥匙>" }
 ```
 
-然后在给 AI 的规则里（如 `CLAUDE.md`、`AGENTS.md`）加一句：
-
-```
-每次回复我之前调用一次 speaker_say，说清是哪个项目、结果怎样。
-```
-
-工具说明里已经写好了怎么说话：先说项目、再说结果，坏消息直说，80 字以内。
-
 只支持 stdio 的 MCP 客户端，可以用程序自带的转发：`xueer-speaker mcp-local -url http://…/mcp -key-file ~/.speaker.key`（钥匙文件权限要是 600）。
 
 ## 进阶（可选）
 
-下面几项都不影响基本用法，用得上再配。
+下面几项要「放在服务里跑」，都不影响基本用法，用得上再配。
 
 ### 让脚本说话
 
@@ -127,9 +178,11 @@ curl -H "Authorization: Bearer <bot 钥匙>" -H "Content-Type: application/json"
 
 ## 支持的音箱
 
-实测过的只有 **Xiaomi 智能音箱 Pro（OH2P，固件 1.60.3）**。其他能放网络音乐的小爱音箱可能也能用，但播报和口令用到的接口各型号不一样，没有验证过。用别的型号试过的话，欢迎在 Issue 里说一声能不能用。
+带小爱同学的小米 / Redmi 智能音箱一般都能用。实测的是 **Xiaomi 智能音箱 Pro（OH2P）**；用别的型号遇到念不出来的情况，欢迎在 Issue 里说一声型号。
 
 ## 常见问题
+
+**连上了，但是没声音？** 直接用就跑 `xueer-speaker test`，服务就点面板里的「测试一下」，它会一步一步告诉你卡在哪：没登录、找不到音箱、小爱没念出来，还是音箱取不到晓晓的语音。
 
 **收不到验证码 / 提示「小米暂时限流」？** 短时间内登录太多次会被小米限流，等两小时再试。建议专门开一个小米小号，把音箱共享给它。
 
@@ -137,7 +190,23 @@ curl -H "Authorization: Bearer <bot 钥匙>" -H "Content-Type: application/json"
 
 **念到一半被打断？** 电脑在通过蓝牙往音箱放声音时，音箱念不了。装上 Windows 托盘，让播报从电脑出。
 
-**AI 每次都要调用，会很吵吗？** 同一句话 10 秒内只念一次，每个来源一分钟最多 6 句。面板里也可以随时停。
+**AI 每次都要调用，会很吵吗？** 同一句话 10 秒内只念一次，一分钟最多 6 句。睡觉时让 AI 开勿扰，或者自己 `xueer-speaker dnd on`、点面板上的「勿扰」。
+
+**「让小爱做事」安全吗？** 它等于 AI 替你跟小爱说一句话。程序会拒绝含「买、下单、付款、支付、转账、充值、打电话、发短信、发消息、发微信、视频通话」的句子；小爱绑了支付或通讯服务的话，也建议在米家里关掉语音购物和语音通话。
+
+## 排障命令
+
+这些直接连小米，排查问题时用（服务在跑时少用，免得被小米限流）：
+
+| 命令 | 做什么 |
+| --- | --- |
+| `xueer-speaker devices` | 列出账号下的音箱 |
+| `xueer-speaker conversations -n 5` | 小爱最近听到的话 |
+| `xueer-speaker action <siid> <aiid> '[参数]'` | 发一条 MIoT 动作，如 `action 7 3 '["你好"]'` |
+| `xueer-speaker getprop <siid> <piid>` | 读一个 MIoT 属性，如 `getprop 2 1` 读音量 |
+| `xueer-speaker ubus <path> <method> '{}'` | 直接调音箱的 ubus |
+
+`siid`、`aiid`、`piid` 去 [米家规格书](https://home.miot-spec.com/) 搜你的型号（如 `xiaomi.wifispeaker.oh2p`）。在服务里跑就加 `docker compose exec speaker` 前缀。
 
 ## 开发
 
