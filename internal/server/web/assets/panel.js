@@ -83,7 +83,8 @@ function drawMusic() {
   const place = s.where === "pc" ? "电脑 · Husic" : "音箱上";
   if (s.playing) setNow(s.playing, [s.artist, place, paused ? "暂停了" : ""].filter(Boolean).join(" · "), !paused);
   else if (s.state === "speaking") setNow("在说话", "", true);
-  else setNow("安静着", s.pc && s.husic_wired ? "电脑开着 · 放歌交给 Husic" : s.pc ? "电脑开着 · 从电脑出声" : "", false);
+  else if (!s.husic_wired) setNow(s.online ? "音箱在线" : "音箱没回应", s.pc ? "电脑开着 · 从电脑出声" : "电脑没开 · 音箱念", false);
+  else setNow("安静着", s.pc ? "电脑开着 · 放歌交给 Husic" : "", false);
   $("play").classList.toggle("playing", !!music && !paused);
   $("play").setAttribute("aria-label", music && !paused ? "暂停" : music ? "继续" : "放");
   // The speaker cannot resume a pushed song where it stopped.
@@ -102,6 +103,9 @@ async function status() {
   light("l-husic", s.husic ? "ok" : ""); $("l-husic").hidden = !s.husic_wired;
   // Without Husic there is no music: only stop and the volume stay.
   document.querySelector(".transport").hidden = !s.husic_wired;
+  // Without music the card is just the speaker: its state and the volume.
+  document.querySelector(".now").classList.toggle("speech-only", !s.husic_wired);
+  $("ears").hidden = !s.husic_wired; // voice commands only start music
   document.querySelector('#e-action [data-a="play"]').hidden = !s.husic_wired;
   husicWired = !!s.husic_wired;
   if (s.login === "none") banner("还没登录小米：点右上角「设置」登录，再选一台音箱。", true);
@@ -359,7 +363,7 @@ function drawToday() {
   }
   // Xiao Ai runs our commands for the owner's voice and for Mijia automations
   // ("execute a text command") alike; the last few are listed under the clocks.
-  const runs = heardRuns.slice(0, 4);
+  const runs = husicWired ? heardRuns.slice(0, 4) : [];
   if (runs.length) {
     ol.append(el("li", "group-label", "经小爱执行的（口令或米家定时）"));
     for (const r of runs) {

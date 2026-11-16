@@ -1,19 +1,18 @@
 # 雪儿 speaker
 
-**让家里的小爱音箱替 AI 开口。** Claude Code、Codex 这类 AI 助手干完活，用「晓晓」的声音念一句结果：做好了、出错了、要你回来定个事。脚本、机器人、定时提醒也能让它说话；装了 [Husic](https://github.com/hardware661/Husic) 的话，对音箱说一句「播放我的歌单」就放你的歌。
+**AI 干完活，让家里的小爱音箱叫你。** 在 WSL 或终端里跑 Claude Code、Codex 这类 AI 助手，任务一跑就是几分钟。人走开了，它做完、出错或者需要你拍板时，音箱会用「晓晓」的声音念一句，例如「博客那边改好了，可以直接用」。
 
 不刷机，原生小爱的功能都还在。
 
-![面板：正在放的歌、定时、说过的话](docs/screenshots/panel.webp)
+![面板：说过的话、定时和音量](docs/screenshots/panel.webp)
 
 ## 能做什么
 
 - **AI 叫你。** 内置 MCP 服务，AI 客户端加上就有 `speaker_say`（念一句）和 `speaker_status`（音箱状态）两个工具。面板「设置 → 接入」里有 Claude Code、Codex 等客户端的配置，复制就能用。
 - **好听，不吵。** 用 Edge 的晓晓音色，合成失败时换成小爱原声。同一句话 10 秒内不重复念，每个来源一分钟最多 6 句。
-- **电脑开着就从电脑出声。** 装上 Windows 托盘后，电脑开着时播报从电脑放（电脑平时用蓝牙连着音箱，声音照样从音箱出来，也不会打断你正在听的歌）。电脑关着，音箱自己念。
-- **喊一句放歌**（要接 Husic）。「播放我的歌单」「放一下我喜欢的歌」「播放我的通勤歌单」；放歌时还能说「下一首」「暂停」「继续」「停止」。
-- **面板。** 手机电脑都能打开：随手念一句、调音量、设定时（每周几或只一次，放歌、停、说一句），还能看到说过的话和对小爱说过的话。
-- **给脚本用的接口。** `POST /v1/say` 一行 curl 就能让音箱说话，适合告警、天气、家里的自动化。
+- **面板。** 手机电脑都能打开：随手念一句、调音量、设定时说一句，看看 AI 都说过什么。
+
+还有几项可选功能，不配置就不出现，见后面的[进阶](#进阶可选)：电脑开着时从电脑出声（Windows 托盘）、给脚本用的 `/v1/say`、接 [Husic](https://github.com/hardware661/Husic) 喊一句放歌。
 
 ## 三步用起来
 
@@ -63,7 +62,11 @@ http_headers = { Authorization = "Bearer <钥匙>" }
 
 只支持 stdio 的 MCP 客户端，可以用程序自带的转发：`xueer-speaker mcp-local -url http://…/mcp -key-file ~/.speaker.key`（钥匙文件权限要是 600）。
 
-## 让脚本说话
+## 进阶（可选）
+
+下面几项都不影响基本用法，用得上再配。
+
+### 让脚本说话
 
 `/v1/say` 在 8101 端口上，默认只有这台机器能访问。钥匙在面板「设置 → 接入」的配置里，也可以在数据卷的 `keys.json` 里找到 `bot` 那一项：
 
@@ -74,9 +77,9 @@ curl -H "Authorization: Bearer <bot 钥匙>" -H "Content-Type: application/json"
 
 返回 `202` 表示已经排上队。太长（超过 80 字）返回 `400`，说得太频繁返回 `429`。
 
-## Windows 托盘（可选）
+### 电脑开着时从电脑出声（Windows 托盘）
 
-电脑开着的时候，让播报从电脑出声：
+电脑平时用蓝牙连着音箱的话，音箱正在放电脑的声音时念不了话，会打断你在听的歌。装上托盘，电脑开着时播报改从电脑放，声音照样经蓝牙从音箱出来；电脑关着，音箱自己念。
 
 1. 在 [Releases](https://github.com/hardware661/xueer-speaker/releases) 下载 `xueer-speaker-windows-x64-*.zip`，解压到 `%LOCALAPPDATA%\xueer-speaker`。
 2. 运行 `XueerSpeaker.exe`，填服务器地址和电脑钥匙（面板「设置 → 接入」最后一块）。
@@ -84,7 +87,7 @@ curl -H "Authorization: Bearer <bot 钥匙>" -H "Content-Type: application/json"
 
 需要 Windows 10/11 和 Microsoft Edge WebView2（Windows 11 自带）。
 
-## 接 Husic 放歌（可选）
+### 喊一句放歌（接 Husic）
 
 1. 给 Husic 开一个服务钥匙：启动 Husic 时加 `HUSIC_SERVICE_KEY_FILE=/path/to/service.key`（见 Husic 的部署文档）。
 2. 把同一个钥匙文件放进 speaker 能读到的地方，在 `.env` 里写：
