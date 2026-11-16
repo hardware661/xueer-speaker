@@ -1,0 +1,6 @@
+.git
+pc
+docs
+dist
+*.md
+.project-audit

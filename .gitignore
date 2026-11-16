@@ -1,0 +1,34 @@
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.tools/
+coverage/
+
+# 本地环境与凭据
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+auth*.json
+accounts*/
+accounts*.txt
+
+# 编辑器与系统
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# 构建产物
+/xueer-speaker
+/xueer-speaker.exe
+/data/
+pc/dist/
+pc/vendor/
+pc/build/

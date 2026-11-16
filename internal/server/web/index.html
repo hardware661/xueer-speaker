@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>雪儿 speaker</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/assets/panel.css">
+<script src="/assets/panel.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-inner">
+    <span class="name">雪儿 speaker</span>
+    <div class="lights" aria-label="状态">
+      <span class="light" id="l-speaker"><i></i>音箱</span>
+      <span class="light" id="l-mi"><i></i>小米</span>
+      <span class="light" id="l-pc"><i></i>电脑</span>
+      <span class="light" id="l-husic" title="Husic 开没开（放歌靠它）" hidden><i></i>Husic</span>
+    </div>
+    <button class="text-btn bar-btn" id="open-setup" type="button">设置</button>
+  </div>
+</header>
+
+<section class="gate" id="gate" hidden>
+  <form class="gate-card" id="gate-form">
+    <div class="gate-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3.5" /><circle cx="12" cy="14" r="3.4" /><circle cx="12" cy="7.2" r="1" /></svg></div>
+    <b id="gate-title">登录面板</b>
+    <p id="gate-tip"></p>
+    <input id="gate-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="初始化码（服务日志里的 setup_code）" hidden>
+    <input id="gate-password" type="password" autocomplete="current-password" placeholder="面板密码">
+    <button type="submit" class="primary-btn" id="gate-go">登录</button>
+    <span class="gate-err" id="gate-err"></span>
+  </form>
+</section>
+
+<main id="app" hidden>
+  <div class="banner" id="banner" hidden></div>
+  <div class="layout">
+    <div class="left">
+      <section class="now" aria-label="正在">
+        <div class="now-top">
+          <div class="disc" id="disc" aria-hidden="true"><span></span></div>
+          <div class="now-text">
+            <div class="now-title" id="now-title">–</div>
+            <div class="now-sub" id="now-sub"></div>
+          </div>
+        </div>
+        <div class="transport">
+          <div class="picker" data-for="what">
+            <select id="what" aria-label="放什么" hidden><option value="liked">我喜欢的歌</option></select>
+          </div>
+          <button class="round" id="stop" type="button" aria-label="停"><svg viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="2.4" /></svg></button>
+          <button class="round main" id="play" type="button" aria-label="放"><svg class="i-play" viewBox="0 0 20 20"><path d="M6.4 4.6v10.8a1 1 0 0 0 1.52.85l8.6-5.4a1 1 0 0 0 0-1.7l-8.6-5.4a1 1 0 0 0-1.52.85Z" /></svg><svg class="i-pause" viewBox="0 0 20 20"><rect x="5.2" y="4.2" width="3.4" height="11.6" rx="1" /><rect x="11.4" y="4.2" width="3.4" height="11.6" rx="1" /></svg></button>
+          <button class="round" id="next" type="button" aria-label="下一首"><svg viewBox="0 0 20 20"><path d="M2.5 5.6v8.8a.8.8 0 0 0 1.2.7L10 10.7a.8.8 0 0 0 0-1.4L3.7 4.9a.8.8 0 0 0-1.2.7Z" /><path d="M9.8 5.6v8.8a.8.8 0 0 0 1.2.7l6.3-4.4a.8.8 0 0 0 0-1.4L11 4.9a.8.8 0 0 0-1.2.7Z" /></svg></button>
+        </div>
+        <label class="volume">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3Z" /></svg>
+          <input type="range" id="volume" min="0" max="100" step="1" aria-label="音量">
+          <span id="volume-value">–</span>
+          <em class="vol-of" id="volume-of">音量</em>
+        </label>
+      </section>
+
+      <section class="today" aria-label="定时">
+        <div class="sec-head">
+          <h2>今天</h2>
+          <span class="sec-sub" id="today-sub"></span>
+          <button class="text-btn" id="add" type="button">新增定时</button>
+        </div>
+        <ol class="alarms" id="schedules"></ol>
+      </section>
+    </div>
+
+    <section class="thread" aria-label="对话">
+      <div class="thread-head">
+        <h2>对话</h2>
+        <span class="route" id="route"></span>
+      </div>
+      <ol class="msgs" id="msgs"></ol>
+      <div class="compose">
+        <div class="compose-tools">
+          <div class="seg" role="radiogroup" id="voice" aria-label="嗓子">
+            <button type="button" role="radio" data-v="auto">晓晓</button>
+            <button type="button" role="radio" data-v="native">小爱原声</button>
+          </div>
+          <label class="ears" id="ears" title="开着时可以对小爱说：「播放我的歌单」「放一下我喜欢的歌」「播放我的 XX 歌单」；放歌时还能说「暂停」「继续」「下一首」「停止」"><i class="ear-dot" id="ear-dot"></i>听口令
+            <span class="switch"><input type="checkbox" id="listen"><span></span></span>
+          </label>
+        </div>
+        <form class="say" id="say">
+          <input id="text" maxlength="80" autocomplete="off" placeholder="说一句…">
+          <button type="submit" id="send" aria-label="说"><svg viewBox="0 0 20 20"><path d="M10 15.5V4.5M5.5 9 10 4.5 14.5 9" /></svg></button>
+        </form>
+      </div>
+    </section>
+  </div>
+</main>
+
+<dialog class="sheet" id="editor" aria-label="定时">
+  <form id="editor-form">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" id="e-cancel">取消</button>
+      <b id="e-title">新增定时</b>
+      <button type="submit" class="text-btn strong">保存</button>
+    </div>
+    <div class="wheels" id="e-time" role="group" aria-label="时间">
+      <div class="wheel" id="e-hour" tabindex="0" aria-label="时"></div>
+      <span class="colon">:</span>
+      <div class="wheel" id="e-minute" tabindex="0" aria-label="分"></div>
+    </div>
+    <div class="seg repeat" role="radiogroup" id="e-repeat" aria-label="重复">
+      <button type="button" role="radio" data-r="week" aria-checked="true">每周</button>
+      <button type="button" role="radio" data-r="today">只今天</button>
+      <button type="button" role="radio" data-r="tomorrow">只明天</button>
+    </div>
+    <div class="days" id="e-days" role="group" aria-label="星期">
+      <button type="button" data-d="1">一</button><button type="button" data-d="2">二</button><button type="button" data-d="3">三</button><button type="button" data-d="4">四</button><button type="button" data-d="5">五</button><button type="button" data-d="6">六</button><button type="button" data-d="0">日</button>
+    </div>
+    <div class="sheet-list">
+      <div class="sheet-row">
+        <span>做什么</span>
+        <div class="seg" role="radiogroup" id="e-action">
+          <button type="button" role="radio" data-a="play" aria-checked="true">放歌</button>
+          <button type="button" role="radio" data-a="stop">停</button>
+          <button type="button" role="radio" data-a="say">说一句</button>
+        </div>
+      </div>
+      <div class="sheet-row" id="e-what-row">
+        <span>放什么</span>
+        <div class="picker compact" data-for="e-what"><select id="e-what" aria-label="放什么" hidden></select></div>
+      </div>
+      <div class="sheet-row" id="e-text-row" hidden>
+        <input id="e-text" maxlength="80" placeholder="到点说什么…" aria-label="到点说什么">
+      </div>
+    </div>
+    <button type="button" class="danger-btn" id="e-delete" hidden>删除这个定时</button>
+  </form>
+</dialog>
+<dialog class="sheet wide" id="setup" aria-label="设置">
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <span></span>
+      <div class="seg" role="tablist" id="setup-tabs">
+        <button type="button" role="tab" data-t="xiaomi" aria-checked="true">小米</button>
+        <button type="button" role="tab" data-t="connect">接入</button>
+      </div>
+      <button type="button" class="text-btn strong" id="setup-done">完成</button>
+    </div>
+
+    <div class="pane" data-pane="xiaomi">
+      <div id="mi-login">
+        <p class="pane-tip">用音箱绑定的小米账号登录。建议用小号：账号只用来控制这台音箱，登录信息只存在这台服务器上。</p>
+        <form class="sheet-list" id="mi-form">
+          <div class="sheet-row"><span>账号</span><input id="mi-user" autocomplete="username" placeholder="手机号 / 邮箱 / 小米 ID"></div>
+          <div class="sheet-row"><span>密码</span><input id="mi-password" type="password" autocomplete="current-password"></div>
+          <div class="sheet-row" id="mi-code-row" hidden><span>验证码</span><input id="mi-code" inputmode="numeric" autocomplete="one-time-code" placeholder="手机收到的 6 位数"></div>
+        </form>
+        <button type="button" class="primary-btn" id="mi-go">登录小米</button>
+      </div>
+      <div id="mi-done" hidden>
+        <p class="pane-tip" id="mi-state"></p>
+        <div class="sheet-list" id="mi-speakers"></div>
+        <button type="button" class="danger-btn" id="mi-logout">退出小米账号</button>
+      </div>
+      <span class="gate-err" id="mi-err"></span>
+    </div>
+
+    <div class="pane" data-pane="connect" hidden>
+      <p class="pane-tip">把下面的配置交给 AI 客户端，它干完活就能叫你。钥匙等于这台音箱的嘴，别发给别人。</p>
+      <div class="copy-block"><div class="copy-head"><b>Claude Code</b><button type="button" class="text-btn" data-copy="cc">复制</button></div><pre id="cc"></pre></div>
+      <div class="copy-block"><div class="copy-head"><b>Codex（~/.codex/config.toml）</b><button type="button" class="text-btn" data-copy="codex">复制</button></div><pre id="codex"></pre></div>
+      <div class="copy-block"><div class="copy-head"><b>其他 MCP 客户端</b><button type="button" class="text-btn" data-copy="generic">复制</button></div><pre id="generic"></pre></div>
+      <div class="copy-block"><div class="copy-head"><b>Windows 托盘（第一次运行时填）</b><button type="button" class="text-btn" data-copy="tray">复制</button></div><pre id="tray"></pre></div>
+      <div class="sheet-list">
+        <div class="sheet-row"><span>音箱取语音的地址</span><input id="base" placeholder="http://局域网IP:8100"><button type="button" class="text-btn" id="base-save">保存</button></div>
+      </div>
+      <p class="pane-tip small">音箱自己去这个地址拉语音，必须是音箱访问得到的地址（局域网 IP 或公网域名），不能是 localhost。</p>
+    </div>
+  </div>
+</dialog>
+</body>
+</html>

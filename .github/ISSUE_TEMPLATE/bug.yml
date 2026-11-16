@@ -1,0 +1,22 @@
+name: 问题反馈
+description: 有地方不对劲
+body:
+  - type: textarea
+    attributes:
+      label: 发生了什么
+      description: 你做了什么、看到了什么、本来以为会怎样
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: 音箱型号和固件
+      description: 例如：Xiaomi 智能音箱 Pro（OH2P）1.60.3。面板「设置 → 小米」里能看到型号
+  - type: input
+    attributes:
+      label: 怎么部署的
+      description: 例如：docker compose、源码；有没有用 Windows 托盘
+  - type: textarea
+    attributes:
+      label: 服务日志
+      description: 有报错的话贴相关几行。请先删掉钥匙、密码和 Cookie。
+      render: text

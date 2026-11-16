@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: GOOS=windows go vet ./...
+      - run: go test -race ./...
+      - run: node --check internal/server/web/assets/panel.js
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t xueer-speaker:ci .
+      - name: Start, set up the panel, read the keys
+        run: |
+          docker run -d --name speaker -p 127.0.0.1:8100:8100 -p 127.0.0.1:8102:8102 xueer-speaker:ci
+          for i in $(seq 30); do curl -fs http://127.0.0.1:8102/healthz && break; sleep 1; done
+          curl -fs http://127.0.0.1:8102/readyz
+          curl -fs http://127.0.0.1:8100/api/auth | grep -q '"setup":true'
+          code=$(docker logs speaker 2>&1 | grep -o '"setup_code":"[0-9]*"' | grep -o '[0-9]\{6\}')
+          curl -fs -c jar -H 'Content-Type: application/json' -H 'Sec-Fetch-Site: same-origin' \
+            -d "{\"code\":\"$code\",\"password\":\"ci-password\"}" http://127.0.0.1:8100/api/auth/setup
+          curl -fs -b jar http://127.0.0.1:8100/api/xiaomi | grep -q '"login":"none"'
+          curl -fs -b jar http://127.0.0.1:8100/api/connect | grep -q '"mcp_url"'
+          docker exec speaker edge-tts --version
+          docker logs speaker
+
+  windows:
+    runs-on: windows-2022
+    outputs:
+      version: ${{ steps.pack.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build the tray and the engine
+        id: pack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME } else { 'dev-' + $env:GITHUB_SHA.Substring(0, 7) }
+          python pc/fetch-sdk.py
+          if ($LASTEXITCODE) { throw 'fetch-sdk failed' }
+          ./pc/build.ps1 -OutputDirectory dist/xueer-speaker
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=$version" -o dist/xueer-speaker/xueer-speaker-pc.exe ./cmd/xueer-speaker-pc
+          if ($LASTEXITCODE) { throw 'engine build failed' }
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md dist/xueer-speaker/
+          Compress-Archive -Path dist/xueer-speaker/* -DestinationPath "dist/xueer-speaker-windows-x64-$version.zip"
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [go, docker, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-x64
+          path: release
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push the image (amd64 + arm64)
+        run: |
+          image=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=${{ github.ref_name }} \
+            -t "$image:${{ github.ref_name }}" -t "$image:latest" --push .
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release && sha256sum *.zip > SHA256SUMS && cd ..
+          gh release create "${{ github.ref_name }}" release/* --title "${{ github.ref_name }}" --notes-file CHANGELOG.md --verify-tag

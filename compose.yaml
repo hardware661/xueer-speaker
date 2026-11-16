@@ -1,0 +1,23 @@
+# xueer-speaker in one command: docker compose up -d
+# Then open http://<this machine's LAN IP>:8100 , set a panel password with
+# the setup code from `docker compose logs speaker`, and log in to Xiaomi.
+#
+# The speaker fetches its voice clips from this machine, so port 8100 must
+# be reachable from the speaker (same LAN). Don't publish it to the internet
+# without HTTPS in front (see README, "Run it on a server").
+services:
+  speaker:
+    build: .
+    image: xueer-speaker:local
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8100:8100"               # panel, MCP, and the speaker's clips
+      - "127.0.0.1:8101:8101"     # /v1/say for scripts and bots on this machine
+    volumes:
+      - speaker-data:/data
+
+volumes:
+  speaker-data:
