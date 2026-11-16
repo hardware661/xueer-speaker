@@ -167,11 +167,24 @@ func (sp *Speaker) Conversations(ctx context.Context, limit int, beforeMS int64)
 	return d.Records, nil
 }
 
-// Do asks Xiao Ai to carry out a sentence as if the owner had said it
-// (intelligent-speaker 7-4 execute-text-directive); silent = do it without
-// answering aloud.
+// Do asks Xiao Ai to carry out a sentence as if the owner had said it;
+// silent = do it without answering aloud. MiNA's mibrain ai_service first
+// (same login as speaking; works on OH2P, 2026-11-16), MIoT 7-4
+// execute-text-directive if that fails (MIoT answered HTTP 429 for our
+// account on 11-14 and 11-16).
 func (sp *Speaker) Do(ctx context.Context, text string, silent bool) error {
-	return sp.Action(ctx, 7, 4, []any{text, silent})
+	msg := map[string]any{"nlp": 1, "nlp_text": text}
+	if !silent {
+		msg["tts"] = 1
+	}
+	_, err := sp.ubus(ctx, "mibrain", "ai_service", msg)
+	if err == nil {
+		return nil
+	}
+	if err2 := sp.Action(ctx, 7, 4, []any{text, silent}); err2 != nil {
+		return fmt.Errorf("%w; MIoT: %v", err, err2)
+	}
+	return nil
 }
 
 // DoNotDisturb reads Xiao Ai's own do-not-disturb switch (no-disturb 9-1).

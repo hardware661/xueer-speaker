@@ -2,6 +2,7 @@ package xiaomi_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -37,8 +38,28 @@ func TestConversationsNewestFirst(t *testing.T) {
 	}
 }
 
-func TestDoRunsTheTextDirective(t *testing.T) {
+func TestDoGoesThroughMiNAAiService(t *testing.T) {
 	f, sp := newSpeaker(t)
+	if err := sp.Do(context.Background(), "明天八点叫我", true); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	u := f.Ubus[len(f.Ubus)-1]
+	if u.Get("path") != "mibrain" || u.Get("method") != "ai_service" ||
+		!strings.Contains(u.Get("message"), `"nlp_text":"明天八点叫我"`) || strings.Contains(u.Get("message"), `"tts"`) {
+		t.Fatalf("ubus = %v", u)
+	}
+	if len(f.Actions) != 0 {
+		t.Fatal("MIoT used although MiNA worked")
+	}
+	sp.Do(context.Background(), "现在几点", false)
+	if m := f.Ubus[len(f.Ubus)-1].Get("message"); !strings.Contains(m, `"tts":1`) {
+		t.Fatalf("not silent must ask for speech: %s", m)
+	}
+}
+
+func TestDoFallsBackToMIoT(t *testing.T) {
+	f, sp := newSpeaker(t)
+	f.UbusReply = `{"code":0,"data":{"code":-1,"info":"no"}}`
 	if err := sp.Do(context.Background(), "明天八点叫我", true); err != nil {
 		t.Fatalf("Do: %v", err)
 	}

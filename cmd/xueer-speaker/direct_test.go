@@ -107,8 +107,8 @@ func TestDirectDoVolumeStatus(t *testing.T) {
 	if err := d.Do(ctx, "明天八点叫我", true); err != nil {
 		t.Fatalf("do: %v", err)
 	}
-	if a := f.Actions[len(f.Actions)-1]; a["aiid"] != float64(4) {
-		t.Fatalf("action = %v", a)
+	if _, m, msg := lastUbus(f); m != "ai_service" || !strings.Contains(msg, "明天八点叫我") {
+		t.Fatalf("do = %s %s", m, msg)
 	}
 	if err := d.Do(ctx, "帮我买牛奶", false); err == nil {
 		t.Fatal("unsafe do accepted")
