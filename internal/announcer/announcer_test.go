@@ -3,6 +3,7 @@ package announcer
 import (
 	"context"
 	"errors"
+	"github.com/hardware661/xueer-speaker/internal/control"
 	"strings"
 	"sync"
 	"testing"
@@ -183,5 +184,33 @@ func TestNativeRequestStillRefusesLongText(t *testing.T) {
 	long := strings.Repeat("好", voice.MaxRunes+1)
 	if _, err := a.Say(context.Background(), Request{Text: long, Source: "panel", Native: true}); !errors.Is(err, voice.ErrTooLong) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Do-not-disturb: the line is queued and recorded, never sent to the
+// speaker, and counted so the morning report can say how many.
+func TestQuietKeepsLinesWithoutSpeaking(t *testing.T) {
+	a, sp, c := newA(fakeRenderer{})
+	q := &control.Quiet{Now: c.now}
+	a.Quiet = q
+	q.Start(c.t.Add(8 * time.Hour))
+	rec := &fakeRecorder{}
+	a.Record(rec)
+	if _, err := a.Say(context.Background(), Request{Text: "主人，做完了。", Source: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sp.got) != 0 {
+		t.Fatalf("spoken while quiet: %+v", sp.got)
+	}
+	if len(rec.adds) != 1 || len(rec.done) != 1 || rec.done[rec.adds[0].ID] != "quiet" {
+		t.Fatalf("recorded = %+v %+v", rec.adds, rec.done)
+	}
+	if n := q.Stop(); n != 1 {
+		t.Fatalf("held = %d", n)
+	}
+	// Loud lines (the morning report) go through even while quiet.
+	q.Start(c.t.Add(time.Hour))
+	if _, err := a.Say(context.Background(), Request{Text: "早上好。", Source: "dnd", Loud: true}); err != nil || len(sp.got) != 1 {
+		t.Fatalf("loud line: %v %d", err, len(sp.got))
 	}
 }

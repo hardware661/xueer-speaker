@@ -29,13 +29,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hardware661/xueer-speaker/internal/announcer"
 	"github.com/hardware661/xueer-speaker/internal/schedule"
 	"github.com/hardware661/xueer-speaker/internal/store"
+	"github.com/hardware661/xueer-speaker/internal/tools"
 	"github.com/hardware661/xueer-speaker/internal/voice"
 )
 
@@ -90,6 +90,8 @@ type Status struct {
 	HusicOn bool   `json:"husic_wired"`       // Husic is configured at all
 	Voice   string `json:"voice"`             // auto / native
 	Error   string `json:"error,omitempty"`   // why the speaker could not be read
+	DND     bool   `json:"dnd"`               // do-not-disturb: lines are kept, not spoken
+	DNDTill string `json:"dnd_until,omitempty"`
 }
 
 // Config is the server's secrets and parts.
@@ -98,6 +100,7 @@ type Config struct {
 	Log       *slog.Logger      // nil = discard
 	Persona   Persona           // who speaks; empty = 雪儿 calling 主人
 	Xiaomi    Xiaomi            // the account the panel logs in; nil = no 小米 page
+	Controls  Controls          // volume, do-not-disturb, "do" for the speaker tool; nil = status only
 	MCPTokens map[string]string // bearer → source name (claude / codex / spare)
 	BotKey    string
 	CLIKey    string
@@ -317,6 +320,10 @@ func (s *Server) status(ctx context.Context) Status {
 	st := s.dev.Snapshot(ctx)
 	st.Voice = s.Voice()
 	st.HusicOn = s.getPlayer() != nil
+	if c := s.cfg.Controls; c != nil {
+		d := c.DNDState()
+		st.DND, st.DNDTill = d.On, d.Until
+	}
 	return st
 }
 
@@ -741,16 +748,6 @@ func (s *Server) doStop(w http.ResponseWriter, ctx context.Context) {
 
 // ---- MCP -------------------------------------------------------------------
 
-type sayIn struct {
-	Text   string `json:"text"`
-	Volume int    `json:"volume,omitempty" jsonschema:"音量 6～100，不填就不改"`
-	Native bool   `json:"native,omitempty" jsonschema:"用小爱原生声音（只在音箱上念）"`
-}
-
-type sayOut struct {
-	ID string `json:"id"`
-}
-
 // tokenSource is who called, from the bearer (claude / codex / grok …).
 func tokenSource(req *mcp.CallToolRequest) string {
 	if ti := req.Extra.TokenInfo; ti != nil && ti.UserID != "" {
@@ -760,30 +757,9 @@ func tokenSource(req *mcp.CallToolRequest) string {
 }
 
 func (s *Server) mcpHandler() http.Handler {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "xueer-speaker", Version: "1"}, &mcp.ServerOptions{
-		Instructions: s.cfg.Persona.instructions(),
-	})
-	inSchema, _ := jsonschema.For[sayIn](nil)
-	inSchema.Properties["text"].Description = s.cfg.Persona.textHint()
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "speaker_say",
-		Description: s.sayDescription(),
-		InputSchema: inSchema,
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in sayIn) (*mcp.CallToolResult, sayOut, error) {
-		r := announcer.Request{Text: in.Text, Source: tokenSource(req), Volume: in.Volume, Native: in.Native || s.Voice() == "native"}
-		res, err := s.say.Say(ctx, r)
-		if err != nil {
-			return nil, sayOut{}, err // the SDK turns it into an isError result
-		}
-		return nil, sayOut{ID: res.ID}, nil
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "speaker_status",
-		Description: "音箱在不在线、小米登录状态、在放什么、音量。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, Status, error) {
-		return nil, s.status(ctx), nil
-	})
+	p := tools.Persona{Name: s.cfg.Persona.Name, Owner: s.cfg.Persona.Owner}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "xueer-speaker", Version: "1"}, &mcp.ServerOptions{Instructions: p.Instructions()})
+	tools.Register(srv, mcpBackend{s}, p, tokenSource)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	verify := func(_ context.Context, tok string, _ *http.Request) (*auth.TokenInfo, error) {

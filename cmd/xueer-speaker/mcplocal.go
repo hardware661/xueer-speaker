@@ -14,14 +14,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hardware661/xueer-speaker/internal/server"
+	"github.com/hardware661/xueer-speaker/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // mcpLocal is a stdio MCP server for AI clients that cannot speak HTTP MCP
-// (or should not hold the key in their own config): it forwards
-// speaker_say / speaker_status to the service, which decides where the line
-// plays. The key is read from a private file, never from args or env.
+// (or should not hold the key in their own config): it forwards speaker_say
+// and speaker to the service, which decides where the line plays. The key is read from a private file, never from args or env.
 func mcpLocal(args []string) error {
 	fs := flag.NewFlagSet("mcp-local", flag.ContinueOnError)
 	url := fs.String("url", os.Getenv("XS_MCP_URL"), "服务的 MCP 地址，如 http://192.168.1.10:8100/mcp")
@@ -45,34 +44,12 @@ func mcpLocal(args []string) error {
 	}
 	remote := &remote{url: *url, key: key}
 
-	srv := mcp.NewServer(&mcp.Implementation{Name: "xueer-speaker", Version: version}, &mcp.ServerOptions{
-		Instructions: server.Instructions,
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "speaker_say",
-		Description: server.SayDescription,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in localSayIn) (*mcp.CallToolResult, localSayOut, error) {
-		return nil, remote.say(ctx, in.Text), nil
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "speaker_status",
-		Description: "音箱在不在线、小米登录状态、在放什么、音量。",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		return remote.status(ctx)
-	})
+	p := tools.Persona{}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "xueer-speaker", Version: version}, &mcp.ServerOptions{Instructions: p.Instructions()})
+	tools.Register(srv, remote, p, func(*mcp.CallToolRequest) string { return "" })
 	ctx, stop := signalContext()
 	defer stop()
 	return srv.Run(ctx, &mcp.StdioTransport{})
-}
-
-type localSayIn struct {
-	Text string `json:"text" jsonschema:"雪儿口吻的一句话，80 字以内，开头说是哪个项目"`
-}
-
-type localSayOut struct {
-	ID  string `json:"id,omitempty"`
-	Err string `json:"err,omitempty"`
 }
 
 type remote struct {
@@ -85,43 +62,69 @@ func (r *remote) session(ctx context.Context) (*mcp.ClientSession, error) {
 	return c.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: r.url, HTTPClient: hc, MaxRetries: -1}, nil)
 }
 
-// say queues the line on the server. It never returns an error: the AI is
-// told not to retry or mention failures, so the outcome is informational.
-func (r *remote) say(ctx context.Context, text string) localSayOut {
+// call runs one tool on the server and returns its structured result.
+func (r *remote) call(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cs, err := r.session(ctx)
 	if err != nil {
-		return localSayOut{Err: err.Error()}
+		return nil, err
 	}
 	defer cs.Close()
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "speaker_say", Arguments: map[string]any{"text": text}})
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
-		return localSayOut{Err: err.Error()}
+		return nil, err
 	}
 	if res.IsError {
-		return localSayOut{Err: toolText(res)}
+		return nil, errors.New(toolText(res))
 	}
-	out := localSayOut{}
-	if m, ok := res.StructuredContent.(map[string]any); ok {
-		out.ID, _ = m["id"].(string)
-	}
-	return out
+	m, _ := res.StructuredContent.(map[string]any)
+	return m, nil
 }
 
-func (r *remote) status(ctx context.Context) (*mcp.CallToolResult, any, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cs, err := r.session(ctx)
+// Say forwards the line; the server decides where it plays.
+func (r *remote) Say(ctx context.Context, _ string, text string) (string, error) {
+	m, err := r.call(ctx, "speaker_say", map[string]any{"text": text})
+	id, _ := m["id"].(string)
+	return id, err
+}
+
+func (r *remote) speaker(ctx context.Context, args map[string]any) (map[string]any, error) {
+	return r.call(ctx, "speaker", args)
+}
+
+func (r *remote) Status(ctx context.Context) any {
+	m, err := r.speaker(ctx, map[string]any{"action": "status"})
 	if err != nil {
-		return nil, nil, err
+		return map[string]string{"error": err.Error()}
 	}
-	defer cs.Close()
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "speaker_status", Arguments: map[string]any{}})
-	if err != nil {
-		return nil, nil, err
-	}
-	return nil, res.StructuredContent, nil
+	return m
+}
+
+func (r *remote) Volume(ctx context.Context) (int, error) {
+	m, err := r.speaker(ctx, map[string]any{"action": "volume"})
+	v, _ := m["volume"].(float64)
+	return int(v), err
+}
+
+func (r *remote) SetVolume(ctx context.Context, v int) error {
+	_, err := r.speaker(ctx, map[string]any{"action": "volume", "volume": v})
+	return err
+}
+
+func (r *remote) DND(ctx context.Context, on bool, until string) (tools.DNDState, error) {
+	m, err := r.speaker(ctx, map[string]any{"action": "dnd", "on": on, "until": until})
+	var d tools.DNDState
+	d.On, _ = m["dnd"].(bool)
+	d.Until, _ = m["until"].(string)
+	held, _ := m["held"].(float64)
+	d.Held = int(held)
+	return d, err
+}
+
+func (r *remote) Do(ctx context.Context, text string, silent bool) error {
+	_, err := r.speaker(ctx, map[string]any{"action": "do", "text": text, "silent": silent})
+	return err
 }
 
 func toolText(res *mcp.CallToolResult) string {

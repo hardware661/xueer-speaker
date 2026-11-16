@@ -16,6 +16,7 @@ import (
 
 	"github.com/hardware661/xueer-speaker/internal/announcer"
 	"github.com/hardware661/xueer-speaker/internal/store"
+	"github.com/hardware661/xueer-speaker/internal/tools"
 	"github.com/hardware661/xueer-speaker/internal/voice"
 )
 
@@ -227,7 +228,7 @@ func TestMCPSayAndStatus(t *testing.T) {
 	if err != nil || !res.IsError {
 		t.Fatalf("too long must be a tool error: %v %+v", err, res)
 	}
-	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "speaker_status", Arguments: map[string]any{}})
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "speaker", Arguments: map[string]any{"action": "status"}})
 	if err != nil || res.IsError {
 		t.Fatalf("status: %v %+v", err, res)
 	}
@@ -235,6 +236,94 @@ func TestMCPSayAndStatus(t *testing.T) {
 	if !strings.Contains(string(b), `"online":true`) {
 		t.Fatalf("status = %s", b)
 	}
+	tools, _ := cs.ListTools(ctx, nil)
+	var names []string
+	for _, tl := range tools.Tools {
+		names = append(names, tl.Name)
+	}
+	if strings.Join(names, ",") != "speaker,speaker_say" && strings.Join(names, ",") != "speaker_say,speaker" {
+		t.Fatalf("tools = %v (only speaker_say and speaker)", names)
+	}
+}
+
+// The speaker tool: volume, do-not-disturb and "do", through Controls.
+func TestMCPSpeakerTool(t *testing.T) {
+	s, _, _ := newServer(t)
+	ctl := &fakeControls{vol: 40}
+	s.cfg.Controls = ctl
+	s.mcp = s.mcpHandler()
+	srv := httptest.NewServer(s.Public())
+	defer srv.Close()
+	c := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	cs, err := c.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: srv.URL + "/mcp", HTTPClient: &http.Client{Transport: bearer{"tok-claude"}}, MaxRetries: -1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	ctx := context.Background()
+	call := func(args map[string]any) (string, bool) {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "speaker", Arguments: args})
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		b, _ := json.Marshal(res.StructuredContent)
+		if res.IsError {
+			for _, ct := range res.Content {
+				if tc, ok := ct.(*mcp.TextContent); ok {
+					return tc.Text, true
+				}
+			}
+		}
+		return string(b), res.IsError
+	}
+	if out, bad := call(map[string]any{"action": "volume"}); bad || !strings.Contains(out, `"volume":40`) {
+		t.Fatalf("read volume = %s", out)
+	}
+	if out, bad := call(map[string]any{"action": "volume", "volume": 25}); bad || ctl.vol != 25 || !strings.Contains(out, `"volume":25`) {
+		t.Fatalf("set volume = %s %d", out, ctl.vol)
+	}
+	if out, bad := call(map[string]any{"action": "dnd", "on": true, "until": "08:00"}); bad || ctl.dndUntil != "08:00" || !strings.Contains(out, `"dnd":true`) {
+		t.Fatalf("dnd on = %s", out)
+	}
+	if out, bad := call(map[string]any{"action": "dnd", "on": false}); bad || ctl.dndUntil != "off" {
+		t.Fatalf("dnd off = %s", out)
+	}
+	if _, bad := call(map[string]any{"action": "do", "text": "明天八点叫我", "silent": true}); bad || ctl.did != "明天八点叫我/true" {
+		t.Fatalf("do = %q", ctl.did)
+	}
+	if out, bad := call(map[string]any{"action": "do", "text": "帮我买牛奶"}); !bad || !strings.Contains(out, "不能") {
+		t.Fatalf("unsafe do = %s %v", out, bad)
+	}
+	if _, bad := call(map[string]any{"action": "dance"}); !bad {
+		t.Fatal("unknown action accepted")
+	}
+	if out, _ := call(map[string]any{"action": "status"}); !strings.Contains(out, `"online":true`) || !strings.Contains(out, `"dnd"`) {
+		t.Fatalf("status = %s", out)
+	}
+}
+
+type fakeControls struct {
+	vol      int
+	dndUntil string
+	did      string
+}
+
+func (f *fakeControls) Volume(context.Context) (int, error)      { return f.vol, nil }
+func (f *fakeControls) SetVolume(_ context.Context, v int) error { f.vol = v; return nil }
+func (f *fakeControls) DND(_ context.Context, on bool, until string) (tools.DNDState, error) {
+	if !on {
+		f.dndUntil = "off"
+		return tools.DNDState{}, nil
+	}
+	f.dndUntil = until
+	return tools.DNDState{On: true, Until: "08:00"}, nil
+}
+func (f *fakeControls) DNDState() tools.DNDState {
+	return tools.DNDState{On: f.dndUntil != "" && f.dndUntil != "off"}
+}
+func (f *fakeControls) Do(_ context.Context, text string, silent bool) error {
+	f.did = fmt.Sprintf("%s/%v", text, silent)
+	return nil
 }
 
 type bearer struct{ tok string }

@@ -166,3 +166,37 @@ func (sp *Speaker) Conversations(ctx context.Context, limit int, beforeMS int64)
 	}
 	return d.Records, nil
 }
+
+// Do asks Xiao Ai to carry out a sentence as if the owner had said it
+// (intelligent-speaker 7-4 execute-text-directive); silent = do it without
+// answering aloud.
+func (sp *Speaker) Do(ctx context.Context, text string, silent bool) error {
+	return sp.Action(ctx, 7, 4, []any{text, silent})
+}
+
+// DoNotDisturb reads Xiao Ai's own do-not-disturb switch (no-disturb 9-1).
+func (sp *Speaker) DoNotDisturb(ctx context.Context) (bool, error) {
+	v, err := sp.Prop(ctx, 9, 1)
+	if err != nil {
+		return false, err
+	}
+	on, _ := v.(bool)
+	return on, nil
+}
+
+// SetDoNotDisturb switches Xiao Ai's own do-not-disturb.
+func (sp *Speaker) SetDoNotDisturb(ctx context.Context, on bool) error {
+	res, err := sp.miio(ctx, "/miotspec/prop/set", map[string]any{"params": []any{map[string]any{
+		"did": sp.dev.MiotDID, "siid": 9, "piid": 1, "value": on,
+	}}})
+	if err != nil {
+		return err
+	}
+	var r []struct {
+		Code int `json:"code"`
+	}
+	if json.Unmarshal(res, &r) == nil && len(r) > 0 && r[0].Code != 0 {
+		return fmt.Errorf("xiaomi: set do-not-disturb: code %d", r[0].Code)
+	}
+	return nil
+}

@@ -36,3 +36,31 @@ func TestConversationsNewestFirst(t *testing.T) {
 		t.Fatalf("records = %+v", recs)
 	}
 }
+
+func TestDoRunsTheTextDirective(t *testing.T) {
+	f, sp := newSpeaker(t)
+	if err := sp.Do(context.Background(), "明天八点叫我", true); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	a := f.actions[0]
+	if a["siid"] != float64(7) || a["aiid"] != float64(4) {
+		t.Fatalf("action = %v", a)
+	}
+	if in, _ := a["in"].([]any); len(in) != 2 || in[0] != "明天八点叫我" || in[1] != true {
+		t.Fatalf("in = %v", a["in"])
+	}
+}
+
+func TestDoNotDisturbRoundTrip(t *testing.T) {
+	_, sp := newSpeaker(t)
+	ctx := context.Background()
+	if on, err := sp.DoNotDisturb(ctx); err != nil || on {
+		t.Fatalf("initial = %v %v", on, err)
+	}
+	if err := sp.SetDoNotDisturb(ctx, true); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if on, err := sp.DoNotDisturb(ctx); err != nil || !on {
+		t.Fatalf("after set = %v %v", on, err)
+	}
+}

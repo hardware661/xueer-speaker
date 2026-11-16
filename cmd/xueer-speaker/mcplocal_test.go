@@ -38,17 +38,17 @@ func fakeSpeaker(t *testing.T, fail bool) (*httptest.Server, *[]string) {
 
 func TestLocalSayForwardsToTheServer(t *testing.T) {
 	hs, calls := fakeSpeaker(t, false)
-	out := (&remote{url: hs.URL, key: "k"}).say(context.Background(), "主人，好了")
-	if out.ID != "S1" || out.Err != "" || strings.Join(*calls, "|") != "主人，好了" {
-		t.Fatalf("out %+v calls %v", out, *calls)
+	id, err := (&remote{url: hs.URL, key: "k"}).Say(context.Background(), "", "主人，好了")
+	if id != "S1" || err != nil || strings.Join(*calls, "|") != "主人，好了" {
+		t.Fatalf("id %q err %v calls %v", id, err, *calls)
 	}
 }
 
 func TestLocalSayReportsServerRefusal(t *testing.T) {
 	hs, _ := fakeSpeaker(t, true)
-	out := (&remote{url: hs.URL, key: "k"}).say(context.Background(), "主人")
-	if !strings.Contains(out.Err, "too many lines") {
-		t.Fatalf("out %+v", out)
+	_, err := (&remote{url: hs.URL, key: "k"}).Say(context.Background(), "", "主人")
+	if err == nil || !strings.Contains(err.Error(), "too many lines") {
+		t.Fatalf("err %v", err)
 	}
 }
 

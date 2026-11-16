@@ -35,6 +35,8 @@ type fakeCloud struct {
 	actions       []map[string]any
 	records       []map[string]any // newest first, like the real endpoint
 
+	props map[string]any // "siid-piid" → value (MIoT properties)
+
 	// Password login (login.go): one account, an SMS code when needOTP.
 	user, password, otp string
 	needOTP             bool
@@ -60,6 +62,8 @@ func newFakeCloud(t *testing.T) *fakeCloud {
 	mux.HandleFunc("/admin/v2/device_list", f.deviceList)
 	mux.HandleFunc("/remote/ubus", f.remoteUbus)
 	mux.HandleFunc("/miotspec/action", f.miotAction)
+	mux.HandleFunc("/miotspec/prop/get", f.miotProps)
+	mux.HandleFunc("/miotspec/prop/set", f.miotProps)
 	mux.HandleFunc("/device_profile/v2/conversation", f.conversation)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -207,6 +211,58 @@ func (f *fakeCloud) remoteUbus(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"code": 0,
 		"info": `{"status":1,"volume":30,"play_song_detail":{"position":12000,"duration":200000}}`}})
+}
+
+// miotSigned checks the xiaomiio token and signature exactly as MiService
+// builds them and returns the decoded params.
+func (f *fakeCloud) miotSigned(w http.ResponseWriter, r *http.Request, uri string) (json.RawMessage, bool) {
+	r.ParseForm()
+	if cookie(r, "serviceToken") == "" || cookie(r, "serviceToken") != f.serviceTokens["xiaomiio"] {
+		w.WriteHeader(http.StatusUnauthorized)
+		return nil, false
+	}
+	nonce, data := r.PostForm.Get("_nonce"), r.PostForm.Get("data")
+	ss, _ := base64.StdEncoding.DecodeString(ssecurityFor("xiaomiio"))
+	nb, _ := base64.StdEncoding.DecodeString(nonce)
+	h := sha256.Sum256(append(ss, nb...))
+	mac := hmac.New(sha256.New, h[:])
+	mac.Write([]byte(strings.Join([]string{uri, base64.StdEncoding.EncodeToString(h[:]), nonce, "data=" + data}, "&")))
+	if r.PostForm.Get("signature") != base64.StdEncoding.EncodeToString(mac.Sum(nil)) {
+		fmt.Fprint(w, `{"code":-8,"message":"bad sign"}`)
+		return nil, false
+	}
+	var body struct{ Params json.RawMessage }
+	json.Unmarshal([]byte(data), &body)
+	return body.Params, true
+}
+
+// miotProps serves prop/get and prop/set on f.props.
+func (f *fakeCloud) miotProps(w http.ResponseWriter, r *http.Request) {
+	params, ok := f.miotSigned(w, r, r.URL.Path)
+	if !ok {
+		return
+	}
+	var ps []struct {
+		Siid, Piid int
+		Value      any
+	}
+	json.Unmarshal(params, &ps)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.props == nil {
+		f.props = map[string]any{}
+	}
+	out := []map[string]any{}
+	for _, p := range ps {
+		k := fmt.Sprintf("%d-%d", p.Siid, p.Piid)
+		if strings.HasSuffix(r.URL.Path, "/set") {
+			f.props[k] = p.Value
+			out = append(out, map[string]any{"siid": p.Siid, "piid": p.Piid, "code": 0})
+			continue
+		}
+		out = append(out, map[string]any{"siid": p.Siid, "piid": p.Piid, "code": 0, "value": f.props[k]})
+	}
+	json.NewEncoder(w).Encode(map[string]any{"code": 0, "result": out})
 }
 
 // miotAction checks the xiaomiio signature exactly as MiService builds it.

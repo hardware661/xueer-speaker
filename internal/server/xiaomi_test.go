@@ -103,18 +103,6 @@ func TestConnectInfoShowsMCPAddressAndKey(t *testing.T) {
 	}
 }
 
-func TestPersonaShapesTheToolText(t *testing.T) {
-	s, _, _ := newServer(t)
-	s.cfg.Persona = Persona{Name: "小白", Owner: "老板"}
-	d := s.sayDescription()
-	if !strings.Contains(d, "小白") || !strings.Contains(d, "老板") || strings.Contains(d, "雪儿") || strings.Contains(d, "主人") {
-		t.Fatalf("description = %s", d)
-	}
-	if !strings.Contains(DefaultPersona.describe(), "雪儿") || !strings.Contains(DefaultPersona.describe(), "主人") {
-		t.Fatal("default persona is 雪儿 calling 主人")
-	}
-}
-
 func TestPanelSavesTheSpeakerBase(t *testing.T) {
 	s, _, _ := newServer(t)
 	ok := map[string]string{"X-Owner-User": "me", "Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"}

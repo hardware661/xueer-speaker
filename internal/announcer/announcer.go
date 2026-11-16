@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hardware661/xueer-speaker/internal/conductor"
+	"github.com/hardware661/xueer-speaker/internal/control"
 	"github.com/hardware661/xueer-speaker/internal/voice"
 )
 
@@ -27,6 +28,9 @@ const (
 )
 
 var errNative = errors.New("native voice asked for")
+
+// VoiceQuiet is the Entry voice of a line kept during do-not-disturb.
+const VoiceQuiet = "quiet"
 
 var (
 	ErrRateLimited = errors.New("announcer: too many lines, try later")
@@ -54,6 +58,7 @@ type Request struct {
 	Source string // claude / codex / grok / bot:alert / panel / cli …
 	Volume int
 	Native bool // Xiao Ai's own voice (panel / CLI test)
+	Loud   bool // speaks even during do-not-disturb (the morning report)
 }
 
 // Recorder keeps the history somewhere durable (store). Spoken is called from
@@ -80,6 +85,10 @@ type Entry struct {
 
 // Announcer is safe for concurrent use.
 type Announcer struct {
+	// Quiet, when set and on, keeps lines (recorded, voice "quiet") instead
+	// of speaking them.
+	Quiet *control.Quiet
+
 	r   Renderer
 	pub Publisher
 	sp  Speaker
@@ -113,6 +122,28 @@ func (a *Announcer) Say(ctx context.Context, req Request) (Result, error) {
 	text := voice.Clean(req.Text)
 	if err := a.admit(req.Source, text); err != nil {
 		return Result{}, err
+	}
+	if a.Quiet != nil && !req.Loud && a.Quiet.On() {
+		if text == "" {
+			a.forget(req.Source, text)
+			return Result{}, voice.ErrEmpty
+		}
+		if utf8.RuneCountInString(text) > voice.MaxRunes {
+			a.forget(req.Source, text)
+			return Result{}, voice.ErrTooLong
+		}
+		a.Quiet.Hold()
+		e := Entry{ID: newID(), At: a.now(), Source: req.Source, Text: text, Voice: VoiceQuiet}
+		a.mu.Lock()
+		a.history = append(a.history, &e)
+		a.mu.Unlock()
+		if a.rec != nil {
+			q := e
+			q.Voice = ""
+			a.rec.Queued(q)
+			a.rec.Spoken(e)
+		}
+		return Result{ID: e.ID}, nil
 	}
 	sp := conductor.Speech{Text: text, Volume: req.Volume}
 	var clip voice.Clip

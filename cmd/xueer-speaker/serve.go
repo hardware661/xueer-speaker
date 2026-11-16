@@ -21,6 +21,7 @@ import (
 	"github.com/hardware661/xueer-speaker/internal/audio"
 	"github.com/hardware661/xueer-speaker/internal/command"
 	"github.com/hardware661/xueer-speaker/internal/conductor"
+	"github.com/hardware661/xueer-speaker/internal/control"
 	"github.com/hardware661/xueer-speaker/internal/jukebox"
 	"github.com/hardware661/xueer-speaker/internal/listener"
 	"github.com/hardware661/xueer-speaker/internal/music"
@@ -138,10 +139,14 @@ func serve(args []string) error {
 	pc := pcmouth.New(k.PC)
 	dev.pc = pc
 	ann := announcer.New(vo, host, pc.Route(cond), nil)
+	ann.Quiet = &control.Quiet{}
+	ctl := &controls{dev: dev, quiet: ann.Quiet, ann: ann, store: st, log: log, owner: *f.owner}
+	ctl.restore()
+	go ctl.watch(ctx)
 	srv := server.New(server.Config{
 		Auth: server.Auth(*f.auth), Log: log, Persona: server.Persona{Name: *f.persona, Owner: *f.owner},
 		MCPTokens: k.MCP, BotKey: k.Bot, CLIKey: k.CLI, Audio: host, PC: pc.Handler(), PCKey: k.PC,
-		Xiaomi: dev,
+		Xiaomi: dev, Controls: ctl,
 	}, ann, dev, st)
 	if *f.reminders != "" {
 		srv.SetReminders(fetchReminders(*f.reminders, k.Bot))
