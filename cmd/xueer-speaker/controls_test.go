@@ -93,7 +93,7 @@ func TestDNDSurvivesARestart(t *testing.T) {
 	if !c2.DNDState().On {
 		t.Fatal("do-not-disturb lost on restart")
 	}
-	if u := c2.quiet.Until(); u.Before(time.Now().Add(2*time.Hour)) {
+	if u := c2.quiet.Until(); u.Before(time.Now().Add(2 * time.Hour)) {
 		t.Fatalf("until = %v", u)
 	}
 }

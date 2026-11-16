@@ -1,25 +1,27 @@
-package xiaomi
+package xiaomi_test
 
 import (
 	"context"
 	"errors"
+	"github.com/hardware661/xueer-speaker/internal/xiaomi"
+	"github.com/hardware661/xueer-speaker/internal/xiaomi/xiaomitest"
 	"strings"
 	"testing"
 )
 
 func TestPasswordLoginWithSMSCode(t *testing.T) {
-	f := newFakeCloud(t)
+	f := xiaomitest.New(t)
 	ctx := context.Background()
-	l := NewLogin(f.endpoints(), "")
+	l := xiaomi.NewLogin(f.Endpoints(), "")
 
 	creds, err := l.Start(ctx, "speaker@example.com", "secret")
-	if !errors.Is(err, ErrNeedCode) || creds != nil {
-		t.Fatalf("Start = %v, %v; want ErrNeedCode", creds, err)
+	if !errors.Is(err, xiaomi.ErrNeedCode) || creds != nil {
+		t.Fatalf("Start = %v, %v; want xiaomi.ErrNeedCode", creds, err)
 	}
-	if f.otpSent != 1 {
-		t.Fatalf("sms sent %d times", f.otpSent)
+	if f.OTPSent != 1 {
+		t.Fatalf("sms sent %d times", f.OTPSent)
 	}
-	if _, err := l.Verify(ctx, "000000"); !errors.Is(err, ErrBadCode) {
+	if _, err := l.Verify(ctx, "000000"); !errors.Is(err, xiaomi.ErrBadCode) {
 		t.Fatalf("wrong code: %v", err)
 	}
 	creds, err = l.Verify(ctx, "123456")
@@ -30,15 +32,15 @@ func TestPasswordLoginWithSMSCode(t *testing.T) {
 		t.Fatalf("creds = %+v", creds)
 	}
 	// The passToken works for a session bound to the same deviceId.
-	if _, err := NewSession(f.endpoints(), *creds).Devices(ctx); err != nil {
+	if _, err := xiaomi.NewSession(f.Endpoints(), *creds).Devices(ctx); err != nil {
 		t.Fatalf("Devices with new creds: %v", err)
 	}
 }
 
 func TestPasswordLoginWithoutSMS(t *testing.T) {
-	f := newFakeCloud(t)
-	f.needOTP = false
-	creds, err := NewLogin(f.endpoints(), "an_keepme").Start(context.Background(), "speaker@example.com", "secret")
+	f := xiaomitest.New(t)
+	f.NeedOTP = false
+	creds, err := xiaomi.NewLogin(f.Endpoints(), "an_keepme").Start(context.Background(), "speaker@example.com", "secret")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -48,16 +50,16 @@ func TestPasswordLoginWithoutSMS(t *testing.T) {
 }
 
 func TestPasswordLoginWrongPassword(t *testing.T) {
-	f := newFakeCloud(t)
-	_, err := NewLogin(f.endpoints(), "").Start(context.Background(), "speaker@example.com", "nope")
-	if !errors.Is(err, ErrBadPassword) {
-		t.Fatalf("err = %v, want ErrBadPassword", err)
+	f := xiaomitest.New(t)
+	_, err := xiaomi.NewLogin(f.Endpoints(), "").Start(context.Background(), "speaker@example.com", "nope")
+	if !errors.Is(err, xiaomi.ErrBadPassword) {
+		t.Fatalf("err = %v, want xiaomi.ErrBadPassword", err)
 	}
 }
 
 func TestVerifyWithoutStart(t *testing.T) {
-	f := newFakeCloud(t)
-	if _, err := NewLogin(f.endpoints(), "").Verify(context.Background(), "123456"); err == nil {
+	f := xiaomitest.New(t)
+	if _, err := xiaomi.NewLogin(f.Endpoints(), "").Verify(context.Background(), "123456"); err == nil {
 		t.Fatal("Verify before Start should fail")
 	}
 }

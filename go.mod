@@ -10,6 +10,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/moutend/go-wca v0.3.0
 	golang.org/x/sys v0.41.0
+	golang.org/x/term v0.40.0
 	modernc.org/sqlite v1.40.1
 )
 

@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,37 +21,36 @@ import (
 	"github.com/hardware661/xueer-speaker/internal/xiaomi"
 )
 
-const usage = `用法：xueer-speaker [-token 文件] [-did 音箱] <命令>
+const usage = `用法：xueer-speaker <命令>
+
+不用服务器（小爱原声，登录信息存在 ~/.config/xueer-speaker，XS_HOME 可改）：
+
+  login                       登录小米（账号、密码、短信验证码），选音箱
+  say <文字>                  小爱念一句（勿扰时只记下）
+  volume [0-100]              不带数字读音量，带就设
+  do [--silent] <一句话>      让小爱照这句话去做，如「明天八点叫我」
+  dnd on [--until 08:00] | off | status   勿扰（不带 --until 最多 12 小时）
+  status                      登录、音箱、音量、勿扰
+  test                        自检：一步一步试，念一句
+  mcp                         给 Claude Code / Codex 用的本机 MCP（stdio）
+  logout                      退出小米账号
+
+服务（晓晓的声音、面板、定时，用 Docker 跑）：
 
   serve …                     跑服务（参数看 serve -h，都能用 XS_ 开头的环境变量设）
   client <say|status|history|volume|stop> …   经内网口调运行中的 serve（XS_ADMIN_URL、XS_CLI_KEY_FILE）
-  mcp-local -url … -key-file … 给只会 stdio 的 MCP 客户端用：把 speaker_say 转给服务
+  mcp-local -url … -key-file … 把服务的 MCP 转成本机 stdio
   check                       容器健康检查：GET 127.0.0.1:8102/readyz
   version                     版本
 
-排障（直连小米，用面板存下的登录；serve 在跑时少用，免得被小米限流）：
-
-  devices                     列出账号下的音箱
-  status                      播放状态、音量
-  say-native <文本>           小爱原声说话（MIoT 7-3）
-  say-mina <文本>             小爱原声说话（MiNA text_to_speech）
-  play <url>                  player_play_music 放一个链接
-  play-url <url>              player_play_url 放一个链接
-  pause | resume | stop       播放控制
-  volume <6-100>              音量
-  action <siid> <aiid> [json] MIoT 动作，参数是 JSON 数组
-  getprop <siid> <piid>       读 MIoT 属性
-  ubus <path> <method> [json] 直接调 ubus（排障用）
-  watch-bt                    40 秒内每次蓝牙/播放器状态变化打一行（真机排障）
-  conversations [-n 5]        最近的对话记录
-  watch-interrupt [-for 120s] 盯对话记录，听到"播放我的歌单"就打断小爱两轮（真机验证用）
+排障（直连小米；可加 -token 登录文件、-did 音箱；服务在跑时少用，免得被小米限流）：
 `
 
 // version is set at build time (-X main.version=<tag>).
 var version = "dev"
 
 func main() {
-	tokenFile := flag.String("token", envOr("XS_XIAOMI", "/data/xiaomi.json"), "小米登录文件（面板登录后生成）")
+	tokenFile := flag.String("token", envOr("XS_XIAOMI", filepath.Join(homeDir(), "xiaomi.json")), "小米登录文件（login 或面板登录后生成）")
 	did := flag.String("did", envOr("XS_SPEAKER", ""), "音箱（名字、did 或 MAC；空 = 账号下第一台）")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
@@ -70,6 +70,18 @@ func main() {
 		err = check()
 	case "version":
 		fmt.Println(version)
+	case "login", "logout", "say", "do", "dnd", "test", "mcp":
+		err = directCmd(flag.Arg(0), flag.Args()[1:])
+	case "status", "volume":
+		// Diagnostics used to have these too; with -token / -did they keep
+		// their raw output, otherwise they are the serverless commands.
+		if isFlagSet("token") || isFlagSet("did") {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			err = run(ctx, *tokenFile, *did, flag.Args())
+			cancel()
+		} else {
+			err = directCmd(flag.Arg(0), flag.Args()[1:])
+		}
 	default:
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		err = run(ctx, *tokenFile, *did, flag.Args())
@@ -79,6 +91,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "错误：", err)
 		os.Exit(1)
 	}
+}
+
+func isFlagSet(name string) bool {
+	set := false
+	flag.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
 }
 
 func envOr(k, def string) string {
