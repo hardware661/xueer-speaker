@@ -96,12 +96,13 @@ type Status struct {
 
 // Config is the server's secrets and parts.
 type Config struct {
-	Auth      Auth              // password (default) / header
-	Log       *slog.Logger      // nil = discard
-	Persona   Persona           // who speaks; empty = 雪儿 calling 主人
-	Xiaomi    Xiaomi            // the account the panel logs in; nil = no 小米 page
-	Controls  Controls          // volume, do-not-disturb, "do" for the speaker tool; nil = status only
-	MCPTokens map[string]string // bearer → source name (claude / codex / spare)
+	Auth      Auth                             // password (default) / header
+	Log       *slog.Logger                     // nil = discard
+	Persona   Persona                          // who speaks; empty = 雪儿 calling 主人
+	Xiaomi    Xiaomi                           // the account the panel logs in; nil = no 小米 page
+	Controls  Controls                         // volume, do-not-disturb, "do" for the speaker tool; nil = status only
+	SelfTest  func(context.Context) []TestStep // the panel's 测试一下; nil = none
+	MCPTokens map[string]string                // bearer → source name (claude / codex / spare)
 	BotKey    string
 	CLIKey    string
 	Audio     http.Handler // /a/
@@ -233,6 +234,8 @@ func (s *Server) Public() http.Handler {
 	mux.HandleFunc("POST /api/volume", s.owner(s.sameOrigin(s.apiPanelVolume)))
 	mux.HandleFunc("POST /api/stop", s.owner(s.sameOrigin(s.apiStop)))
 	mux.HandleFunc("POST /api/settings", s.owner(s.sameOrigin(s.apiSettings)))
+	mux.HandleFunc("POST /api/dnd", s.owner(s.sameOrigin(s.apiDND)))
+	mux.HandleFunc("POST /api/test", s.owner(s.sameOriginNoBody(s.apiTest)))
 	mux.HandleFunc("GET /api/schedules", s.owner(s.apiSchedules))
 	mux.HandleFunc("GET /api/reminders", s.owner(s.apiReminders))
 	mux.HandleFunc("POST /api/schedules", s.owner(s.sameOrigin(s.apiAddSchedule)))

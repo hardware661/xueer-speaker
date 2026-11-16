@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Xiaomi is the account behind the speaker, as the panel manages it.
@@ -144,4 +145,21 @@ func (s *Server) learnBase(r *http.Request) {
 		scheme = "https"
 	}
 	s.store.SetSetting("base", fmt.Sprintf("%s://%s", scheme, host))
+}
+
+// TestStep is one step of the panel's 测试一下.
+type TestStep struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func (s *Server) apiTest(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.SelfTest == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_test", "这台服务没有接自检")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	writeJSON(w, http.StatusOK, s.cfg.SelfTest(ctx))
 }

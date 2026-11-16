@@ -35,6 +35,17 @@ func TestParseUntil(t *testing.T) {
 			t.Errorf("ParseUntil(%q) = %v %v, want %v", in, got, err, want)
 		}
 	}
+	// An explicit clock time is kept even past 12 h (16:45 → 08:00 tomorrow).
+	afternoon := time.Date(2026, 11, 16, 16, 45, 0, 0, loc)
+	cases = map[string]time.Time{
+		"08:00": time.Date(2026, 11, 17, 8, 0, 0, 0, loc),
+	}
+	for in, want := range cases {
+		got, err := ParseUntil(in, afternoon)
+		if err != nil || !got.Equal(want) {
+			t.Errorf("ParseUntil(%q) at 16:45 = %v %v, want %v", in, got, err, want)
+		}
+	}
 	if _, err := ParseUntil("8点", now); err == nil {
 		t.Error("bad time accepted")
 	}

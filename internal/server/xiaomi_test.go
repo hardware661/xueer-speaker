@@ -124,3 +124,15 @@ func TestStatusLearnsTheBaseFromTheFirstVisit(t *testing.T) {
 		t.Fatalf("base = %q", b)
 	}
 }
+
+func TestPanelSelfTestReportsSteps(t *testing.T) {
+	s, _, _ := newServer(t)
+	s.cfg.SelfTest = func(context.Context) []TestStep {
+		return []TestStep{{Name: "小米登录", OK: true}, {Name: "小爱原声", OK: true}, {Name: "晓晓", OK: false, Detail: "音箱没来取语音"}}
+	}
+	ok := map[string]string{"X-Owner-User": "me", "Sec-Fetch-Site": "same-origin"}
+	rec := do(s.Public(), "POST", "/api/test", "", ok)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "音箱没来取语音") {
+		t.Fatalf("= %d %s", rec.Code, rec.Body)
+	}
+}

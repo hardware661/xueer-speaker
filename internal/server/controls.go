@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/hardware661/xueer-speaker/internal/announcer"
 	"github.com/hardware661/xueer-speaker/internal/tools"
@@ -51,4 +52,25 @@ func (b mcpBackend) Do(ctx context.Context, text string, silent bool) error {
 		return errNoControls
 	}
 	return b.s.cfg.Controls.Do(ctx, text, silent)
+}
+
+// apiDND is the panel's 勿扰 switch: {"on": true, "until": "08:00"}.
+func (s *Server) apiDND(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		On    bool   `json:"on"`
+		Until string `json:"until"`
+	}
+	if !readJSON(w, r, &b) {
+		return
+	}
+	if s.cfg.Controls == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_controls", errNoControls.Error())
+		return
+	}
+	st, err := s.cfg.Controls.DND(r.Context(), b.On, b.Until)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "dnd", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }

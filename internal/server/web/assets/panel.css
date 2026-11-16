@@ -370,3 +370,22 @@ html[data-xs-window] .bar { cursor: default; }
   background: var(--fg); }
 .now.speech-only .disc.spin { animation: none; }
 .now.speech-only .now-title { font-size: 17px; }
+
+/* ---- 勿扰：顶栏一颗小药丸，开着时变黑 ---- */
+.dnd-pill { margin-left: 14px; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px 0 8px; border-radius: 13px;
+  font-size: 12.5px; color: var(--muted); background: var(--fill); transition: background .25s, color .25s, transform .15s var(--spring); }
+.dnd-pill svg { width: 14px; height: 14px; fill: currentColor; }
+.dnd-pill:active { transform: scale(.95); }
+.dnd-pill[aria-pressed=true] { background: var(--fg); color: var(--bg); }
+#dnd-sheet .pane-tip { margin: 0 4px; }
+#dnd-sheet .seg.repeat { margin: 2px auto 0; }
+#dnd-sheet input[type=time] { margin-left: auto; flex: none; text-align: right; }
+
+/* ---- 测试一下：一步一行 ---- */
+.test-steps { list-style: none; margin: 0; padding: 4px 2px; display: grid; gap: 6px; font-size: 13px; }
+.test-steps li { display: flex; align-items: baseline; gap: 8px; animation: drop .35s var(--spring); }
+.test-steps li i { font-style: normal; width: 14px; text-align: center; }
+.test-steps li.ok i { color: var(--ok); } .test-steps li.bad, .test-steps li.bad i { color: var(--bad); }
+.test-steps li span { color: var(--muted); font-size: 12.5px; }
+.test-steps li.bad span { color: var(--bad); }
+.test-steps li.wait, .test-steps li.note { color: var(--muted); }

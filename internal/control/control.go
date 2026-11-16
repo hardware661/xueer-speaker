@@ -36,8 +36,8 @@ func CheckDirective(text string) error {
 // does not silence the speaker for days.
 const MaxDND = 12 * time.Hour
 
-// ParseUntil reads "08:00" (the next time the clock shows it), "2h" / "90m"
-// (from now) or "" (MaxDND); never later than now+MaxDND.
+// ParseUntil reads "08:00" (the next time the clock shows it, at most a day
+// away), "2h" / "90m" (from now, at most MaxDND) or "" (MaxDND).
 func ParseUntil(s string, now time.Time) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	var t time.Time
@@ -53,6 +53,7 @@ func ParseUntil(s string, now time.Time) (time.Time, error) {
 		if !t.After(now) {
 			t = t.AddDate(0, 0, 1)
 		}
+		return t, nil // the owner named the time: keep it
 	default:
 		d, err := time.ParseDuration(s)
 		if err != nil || d <= 0 {

@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/hardware661/xueer-speaker/internal/audio"
+	"github.com/hardware661/xueer-speaker/internal/server"
+	"github.com/hardware661/xueer-speaker/internal/voice"
 
 	"github.com/hardware661/xueer-speaker/internal/announcer"
 	"github.com/hardware661/xueer-speaker/internal/control"
@@ -111,4 +116,60 @@ func (c *controls) watch(ctx context.Context) {
 			c.log.Info("do-not-disturb ended", "held", held)
 		}
 	}
+}
+
+// selfTest is the panel's 测试一下: each step on its own, so the owner sees
+// where it stops. The speaker says two short lines (native, then Xiaoxiao).
+func selfTest(dev *device, vo *voice.Voice, host *audio.Host) func(context.Context) []server.TestStep {
+	return func(ctx context.Context) []server.TestStep {
+		var steps []server.TestStep
+		add := func(name string, err error, okDetail string) bool {
+			s := server.TestStep{Name: name, OK: err == nil, Detail: okDetail}
+			if err != nil {
+				s.Detail = err.Error()
+			}
+			steps = append(steps, s)
+			return err == nil
+		}
+		if !add("小米登录", loginErr(dev), "") {
+			return steps
+		}
+		st, err := dev.Status(ctx)
+		if !add("找到音箱、在线", err, fmt.Sprintf("音量 %d", st.Volume)) {
+			return steps
+		}
+		if !add("小爱原声", dev.SpeakNative(ctx, "测试一下，这是小爱原声。"), "") {
+			return steps
+		}
+		clip, err := vo.Render(ctx, "这是晓晓的声音。")
+		if !add("生成晓晓的声音", err, "") {
+			return steps
+		}
+		link := host.Speech(clip.Path)
+		if !add("推给音箱", dev.Push(ctx, link), "") {
+			return steps
+		}
+		deadline := time.Now().Add(12 * time.Second)
+		for !host.Fetched(link) && time.Now().Before(deadline) {
+			time.Sleep(300 * time.Millisecond)
+		}
+		if host.Fetched(link) {
+			add("音箱来取语音", nil, "")
+		} else {
+			add("音箱来取语音", fmt.Errorf("音箱 12 秒内没来取：看「接入」页最下面的地址，音箱访问不到它（不能是 localhost，要和音箱在同一个局域网）"), "")
+		}
+		return steps
+	}
+}
+
+func loginErr(dev *device) error {
+	switch dev.LoginState() {
+	case "ok", "renewing":
+		return nil
+	case "none":
+		return errors.New("还没登录小米")
+	case "risk-control":
+		return errors.New("小米暂时限流，过两小时再试")
+	}
+	return errors.New("登录失效了，重新登录")
 }

@@ -1,6 +1,6 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-const who = { claude: "Claude", codex: "Codex", grok: "Grok", ai: "AI", spare: "备用", panel: "面板", cli: "命令行", listener: "口令", schedule: "定时" };
+const who = { claude: "Claude", codex: "Codex", grok: "Grok", ai: "AI", dnd: "勿扰", spare: "备用", panel: "面板", cli: "命令行", listener: "口令", schedule: "定时" };
 const botWhat = { reminder: "提醒", weather: "天气", alert: "告警", wxbot: "微信" };
 const dayName = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -73,7 +73,7 @@ function setNow(title, sub, spinning) {
 function setVolume(v) { $("volume").value = v; $("volume-value").textContent = v; paintVolume(); }
 function paintVolume() { const r = $("volume"); r.style.setProperty("--p", ((r.value - r.min) / (r.max - r.min)) * 100 + "%"); }
 
-let pcOn = false, husicWired = false;
+let pcOn = false, husicWired = false, dndOn = false;
 let music = null; // { where, paused } while something plays
 let musicHold = 0; // until then a click's local state beats a status read
 let lastStatus = null;
@@ -101,6 +101,10 @@ async function status() {
   pcOn = !!s.pc;
   $("route").textContent = s.voice === "native" ? "小爱原声 · 音箱念" : s.pc ? "电脑开着 · 从电脑出声" : "电脑没开 · 音箱念";
   light("l-husic", s.husic ? "ok" : ""); $("l-husic").hidden = !s.husic_wired;
+  dndOn = !!s.dnd;
+  $("dnd-btn").setAttribute("aria-pressed", String(dndOn));
+  $("dnd-text").textContent = dndOn ? "勿扰到 " + s.dnd_until : "勿扰";
+  $("dnd-btn").title = dndOn ? "点一下关掉勿扰" : "打开勿扰：说的话只记下不出声";
   // Without Husic there is no music: only stop and the volume stay.
   document.querySelector(".transport").hidden = !s.husic_wired;
   // Without music the card is just the speaker: its state and the volume.
@@ -148,7 +152,7 @@ async function history() {
     const li = el("li", "msg");
     if (it.say) {
       const s = it.say;
-      const how = s.err ? "没念成" : s.voice === "pc" ? "电脑" : s.voice === "edge" ? "音箱 · 晓晓" : s.voice === "native" ? "音箱 · 原声" : "排队中";
+      const how = s.err ? "没念成" : s.voice === "quiet" ? "勿扰中 · 没念" : s.voice === "pc" ? "电脑" : s.voice === "edge" ? "音箱 · 晓晓" : s.voice === "native" ? "音箱 · 原声" : "排队中";
       const meta = el("div", "meta");
       meta.append(el("span", null, src(s.source)), el("span", null, hm(s.at)), el("span", s.err ? "err" : null, how));
       if (s.err) meta.title = zhTitle(s.err);
@@ -559,7 +563,7 @@ async function gate() {
   let a; try { a = await api("/api/auth"); } catch { a = { mode: "password", setup: false, logged_in: false }; }
   const inside = a.logged_in || a.mode === "header";
   $("gate").hidden = inside; $("app").hidden = !inside;
-  document.querySelector(".lights").hidden = !inside; $("open-setup").hidden = !inside;
+  document.querySelector(".lights").hidden = !inside; $("open-setup").hidden = !inside; $("dnd-btn").hidden = !inside;
   if (inside) return start();
   $("gate-code").hidden = !a.setup;
   $("gate-title").textContent = a.setup ? "设一个面板密码" : "登录面板";
@@ -633,6 +637,25 @@ $("mi-go").addEventListener("click", async () => {
   finally { $("mi-go").disabled = false; }
 });
 $("mi-form").addEventListener("submit", (e) => { e.preventDefault(); $("mi-go").click(); });
+$("mi-test").addEventListener("click", async () => {
+  const ol = $("test-steps"); ol.hidden = false; ol.textContent = "";
+  ol.append(el("li", "wait", "音箱会念两句，等十来秒…"));
+  $("mi-test").disabled = true;
+  try {
+    const steps = await api("/api/test", undefined, "POST");
+    ol.textContent = "";
+    for (const st of steps) {
+      const li = el("li", st.ok ? "ok" : "bad");
+      li.append(el("i", null, st.ok ? "✓" : "✗"), el("b", null, st.name));
+      // Steps the service wrote in Chinese stay as they are (they may name
+      // localhost); raw errors from below go through zh().
+      if (st.detail) li.append(el("span", null, st.ok || /[\u4e00-\u9fff]/.test(st.detail) ? st.detail : zh(st.detail)));
+      ol.append(li);
+    }
+    if (steps.every((x) => x.ok)) ol.append(el("li", "ok note", "都通了：刚才听到了两句就说明好了。"));
+  } catch (e) { ol.textContent = ""; ol.append(el("li", "bad", e.message)); }
+  finally { $("mi-test").disabled = false; }
+});
 $("mi-logout").addEventListener("click", async () => {
   if (!confirm("退出小米账号？音箱会停止工作，要重新登录才能用。")) return;
   try { await api("/api/xiaomi/logout", undefined, "POST"); await xiaomi(); status(); } catch (e) { $("mi-err").textContent = e.message; }
@@ -655,6 +678,30 @@ document.querySelector('[data-pane="connect"]').addEventListener("click", async 
 $("base-save").addEventListener("click", () => api("/api/settings", { base: $("base").value.trim() })
   .then(() => { $("base-save").textContent = "已保存"; setTimeout(() => { $("base-save").textContent = "保存"; }, 1600); })
   .catch((e) => banner(e.message, true)));
+
+// ---- 勿扰 ----
+$("dnd-btn").addEventListener("click", async () => {
+  if (dndOn) {
+    try { const r = await api("/api/dnd", { on: false }); banner(r && r.held ? "勿扰关了，期间攒了 " + r.held + " 句" : ""); status(); history(); }
+    catch (e) { banner("勿扰没关掉：" + e.message, true); }
+    return;
+  }
+  $("dnd-sheet").showModal();
+});
+$("dnd-until").addEventListener("click", (ev) => {
+  const u = ev.target.dataset?.u; if (!u) return;
+  for (const b of $("dnd-until").children) b.setAttribute("aria-checked", String(b === ev.target));
+  $("dnd-custom-row").hidden = u !== "custom";
+});
+$("dnd-cancel").addEventListener("click", () => $("dnd-sheet").close());
+$("dnd-sheet").addEventListener("click", (ev) => { if (ev.target === $("dnd-sheet")) $("dnd-sheet").close(); });
+$("dnd-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const pick = [...$("dnd-until").children].find((b) => b.getAttribute("aria-checked") === "true").dataset.u;
+  const until = pick === "custom" ? $("dnd-time").value : pick;
+  try { await api("/api/dnd", { on: true, until }); $("dnd-sheet").close(); status(); }
+  catch (e) { banner("勿扰没打开：" + e.message, true); }
+});
 
 function start() {
   if (started) return;

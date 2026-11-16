@@ -146,7 +146,7 @@ func serve(args []string) error {
 	srv := server.New(server.Config{
 		Auth: server.Auth(*f.auth), Log: log, Persona: server.Persona{Name: *f.persona, Owner: *f.owner},
 		MCPTokens: k.MCP, BotKey: k.Bot, CLIKey: k.CLI, Audio: host, PC: pc.Handler(), PCKey: k.PC,
-		Xiaomi: dev, Controls: ctl,
+		Xiaomi: dev, Controls: ctl, SelfTest: selfTest(dev, vo, host),
 	}, ann, dev, st)
 	if *f.reminders != "" {
 		srv.SetReminders(fetchReminders(*f.reminders, k.Bot))

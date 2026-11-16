@@ -19,6 +19,7 @@
       <span class="light" id="l-pc"><i></i>电脑</span>
       <span class="light" id="l-husic" title="Husic 开没开（放歌靠它）" hidden><i></i>Husic</span>
     </div>
+    <button class="dnd-pill" id="dnd-btn" type="button" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.5 12.2A6.5 6.5 0 0 1 7.8 4.5a6.5 6.5 0 1 0 7.7 7.7Z" /></svg><span id="dnd-text">勿扰</span></button>
     <button class="text-btn bar-btn" id="open-setup" type="button">设置</button>
   </div>
 </header>
@@ -138,6 +139,25 @@
     <button type="button" class="danger-btn" id="e-delete" hidden>删除这个定时</button>
   </form>
 </dialog>
+<dialog class="sheet" id="dnd-sheet" aria-label="勿扰">
+  <form id="dnd-form">
+    <div class="sheet-head">
+      <button type="button" class="text-btn" id="dnd-cancel">取消</button>
+      <b>勿扰</b>
+      <button type="submit" class="text-btn strong">打开</button>
+    </div>
+    <p class="pane-tip">勿扰时说的话都记在对话里，不出声；到点自动关，关的时候念一句攒了几句。</p>
+    <div class="seg repeat" role="radiogroup" id="dnd-until">
+      <button type="button" role="radio" data-u="08:00" aria-checked="true">到早上 8 点</button>
+      <button type="button" role="radio" data-u="2h">2 小时</button>
+      <button type="button" role="radio" data-u="custom">自定义</button>
+    </div>
+    <div class="sheet-list" id="dnd-custom-row" hidden>
+      <div class="sheet-row"><span>到几点</span><input id="dnd-time" type="time" value="09:00"></div>
+    </div>
+  </form>
+</dialog>
+
 <dialog class="sheet wide" id="setup" aria-label="设置">
   <div class="sheet-body">
     <div class="sheet-head">
@@ -162,6 +182,8 @@
       <div id="mi-done" hidden>
         <p class="pane-tip" id="mi-state"></p>
         <div class="sheet-list" id="mi-speakers"></div>
+        <button type="button" class="primary-btn" id="mi-test">测试一下</button>
+        <ol class="test-steps" id="test-steps" hidden></ol>
         <button type="button" class="danger-btn" id="mi-logout">退出小米账号</button>
       </div>
       <span class="gate-err" id="mi-err"></span>

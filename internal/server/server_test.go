@@ -523,3 +523,23 @@ func TestPanelListsTheBotsReminders(t *testing.T) {
 		t.Fatalf("no bot = %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestPanelDND(t *testing.T) {
+	s, _, _ := newServer(t)
+	ctl := &fakeControls{}
+	s.cfg.Controls = ctl
+	ok := map[string]string{"X-Owner-User": "me", "Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"}
+	rec := do(s.Public(), "POST", "/api/dnd", `{"on":true,"until":"08:00"}`, ok)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"dnd":true`) || ctl.dndUntil != "08:00" {
+		t.Fatalf("on = %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(s.Public(), "GET", "/api/status", "", ok); !strings.Contains(rec.Body.String(), `"dnd":true`) {
+		t.Fatalf("status = %s", rec.Body)
+	}
+	if rec := do(s.Public(), "POST", "/api/dnd", `{"on":false}`, ok); rec.Code != 200 || ctl.dndUntil != "off" {
+		t.Fatalf("off = %d %s", rec.Code, rec.Body)
+	}
+	if c := do(s.Public(), "POST", "/api/dnd", `{"on":true}`, nil).Code; c != 401 {
+		t.Fatalf("no login = %d", c)
+	}
+}
