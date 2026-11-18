@@ -7,11 +7,22 @@ const dayName = ["日", "一", "二", "三", "四", "五", "六"];
 async function api(path, body, method) {
   const opt = body === undefined ? (method ? { method } : {})
     : { method: method || "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-  const r = await fetch(path, { credentials: "same-origin", ...opt });
+  // redirect "manual": behind a login gate an expired session turns API calls into a
+  // redirect to the gate's login page, which fetch cannot follow cross-origin. Reload the
+  // page instead so the gate can show its login page (otherwise the panel just looks offline).
+  const r = await fetch(path, { credentials: "same-origin", redirect: "manual", ...opt });
+  if (r.type === "opaqueredirect") { relogin(); throw new Error("login"); }
   if (r.status === 401 && !path.startsWith("/api/auth")) { gate(); throw new Error("login"); }
   const data = r.status === 204 ? null : await r.json().catch(() => null);
   if (!r.ok) throw new Error(zh(data?.error?.message || "HTTP " + r.status));
   return data;
+}
+// At most one reload a minute, so a gate that keeps redirecting cannot loop the page.
+function relogin() {
+  const last = Number(sessionStorage.getItem("xs-relogin") || 0);
+  if (Date.now() - last < 60000) { banner("登录过期了：关掉面板再打开，重新登录一次。", true); return; }
+  sessionStorage.setItem("xs-relogin", String(Date.now()));
+  location.reload();
 }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function pad(n) { return String(n).padStart(2, "0"); }
