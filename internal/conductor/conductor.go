@@ -435,6 +435,9 @@ func (c *Conductor) speakClip(ctx context.Context, sp Speech) Outcome {
 				return Outcome{Voice: VoiceEdge}
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return Outcome{Voice: VoiceEdge, Err: err}
+		}
 		c.dev.Control(ctx, xiaomi.OpStop) // never stack two voices
 		// Give the player a moment to settle: right after a stop, the native
 		// voice was cut off at its first words.
@@ -452,21 +455,25 @@ func (c *Conductor) speakClip(ctx context.Context, sp Speech) Outcome {
 const loopOnce = 2
 
 // awaitPlayed waits until the clip has had time to play: false if the
-// speaker never fetched it. It only paces the queue so the next line does
+// speaker never completed its playback probe. It only paces the queue so the next line does
 // not cut this one; the speaker stops by itself.
 func (c *Conductor) awaitPlayed(ctx context.Context, sp Speech) bool {
 	deadline := time.Now().Add(c.opt.FetchWait)
 	for {
-		f := c.opt.Fetches(sp.URL)
-		if len(f) > 0 {
-			start := playStart(f)
-			if !start.IsZero() && time.Now().After(start.Add(sp.Duration+c.opt.SpeechPad)) {
-				return true
-			}
-		} else if time.Now().After(deadline) {
+		if ctx.Err() != nil {
 			return false
 		}
-		if ctx.Err() != nil {
+		fetches := c.opt.Fetches(sp.URL)
+		var start time.Time
+		if len(fetches) > 0 {
+			start = playStart(fetches)
+		}
+		now := time.Now()
+		if start.IsZero() {
+			if !now.Before(deadline) {
+				return false
+			}
+		} else if !now.Before(start.Add(sp.Duration + c.opt.SpeechPad)) {
 			return true
 		}
 		sleep(ctx, c.opt.FetchPoll)

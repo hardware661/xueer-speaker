@@ -315,3 +315,11 @@ func TestPanelResumePushesTheSongAgain(t *testing.T) {
 		t.Fatalf("calls = %s", h)
 	}
 }
+
+func TestIncompleteAudioProbeFallsBack(t *testing.T) {
+	c, _ := start(t, []step{{time.Millisecond, true}, {2 * time.Millisecond, false}})
+	out := say(t, c, Speech{Text: "好", URL: "speech", Duration: clipLen})
+	if out.Voice != VoiceNative || out.Err != nil {
+		t.Fatalf("expected native fallback after incomplete probe, got %+v", out)
+	}
+}
