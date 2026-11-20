@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -134,5 +135,14 @@ func TestPanelSelfTestReportsSteps(t *testing.T) {
 	rec := do(s.Public(), "POST", "/api/test", "", ok)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "音箱没来取语音") {
 		t.Fatalf("= %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestPanelRejectsInvalidSettingsWithoutApplyingEarlierFields(t *testing.T) {
+	s, _, _ := newServer(t)
+	headers := map[string]string{"X-Owner-User": "me", "Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"}
+	rec := do(s.Public(), "POST", "/api/settings", `{"base":"https://speaker.example","voice":"invalid"}`, headers)
+	if rec.Code != http.StatusBadRequest || s.store.Setting("base", "") != "" {
+		t.Fatalf("invalid settings changed the base: status=%d", rec.Code)
 	}
 }

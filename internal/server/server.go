@@ -422,27 +422,35 @@ func (s *Server) apiSettings(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &b) {
 		return
 	}
+	values := make(map[string]string, 3)
 	if b.Base != nil {
 		u, err := url.Parse(strings.TrimSpace(*b.Base))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" {
 			writeErr(w, http.StatusBadRequest, "bad_base", "要写 http:// 或 https:// 开头、音箱访问得到的地址")
 			return
 		}
-		s.store.SetSetting("base", strings.TrimRight(u.String(), "/"))
+		values["base"] = strings.TrimRight(u.String(), "/")
 	}
 	if b.Voice != nil {
 		if *b.Voice != "auto" && *b.Voice != "native" {
 			writeErr(w, http.StatusBadRequest, "bad_voice", "嗓子只有 auto / native")
 			return
 		}
-		s.store.SetSetting("voice", *b.Voice)
+		values["voice"] = *b.Voice
 	}
 	if b.Listener != nil {
 		v := "off"
 		if *b.Listener {
 			v = "on"
 		}
-		s.store.SetSetting("listener", v)
+		values["listener"] = v
+	}
+	if len(values) != 0 {
+		if err := s.store.SetSettings(values); err != nil {
+			s.cfg.Log.Error("persist panel settings", "err", err)
+			writeErr(w, http.StatusInternalServerError, "settings_store", "设置保存失败，请稍后再试")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

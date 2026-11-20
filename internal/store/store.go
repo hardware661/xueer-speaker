@@ -148,6 +148,21 @@ func (s *Store) SetSetting(key, value string) error {
 	return err
 }
 
+// SetSettings applies one panel edit atomically.
+func (s *Store) SetSettings(values map[string]string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for key, value := range values {
+		if _, err := tx.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Prune deletes log rows older than before.
 func (s *Store) Prune(before time.Time) error {
 	ms := before.UnixMilli()
