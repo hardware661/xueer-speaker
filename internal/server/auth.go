@@ -84,13 +84,22 @@ func sessionKey(tok string) string {
 	return "session:" + hex.EncodeToString(sum[:])
 }
 
-func (s *Server) newSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) newSession(w http.ResponseWriter, r *http.Request) bool {
 	tok := randomHex(32)
-	s.store.SetSetting(sessionKey(tok), fmt.Sprint(time.Now().Add(sessionTTL).Unix()))
+	if err := s.store.SetSetting(sessionKey(tok), fmt.Sprint(time.Now().Add(sessionTTL).Unix())); err != nil {
+		s.authStoreError(w, err)
+		return false
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https", MaxAge: int(sessionTTL.Seconds()),
 	})
+	return true
+}
+
+func (s *Server) authStoreError(w http.ResponseWriter, err error) {
+	s.cfg.Log.Error("persist panel authentication", "err", err)
+	writeErr(w, http.StatusInternalServerError, "auth_store", "登录状态保存失败，请稍后再试")
 }
 
 func (s *Server) loggedIn(r *http.Request) bool {
@@ -148,10 +157,14 @@ func (s *Server) apiSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	salt := make([]byte, 16)
 	rand.Read(salt)
-	s.store.SetSetting("panel_password", hashPassword(b.Password, salt))
+	if err := s.store.SetSetting("panel_password", hashPassword(b.Password, salt)); err != nil {
+		s.authStoreError(w, err)
+		return
+	}
 	s.gate.setupCode = ""
-	s.newSession(w, r)
-	w.WriteHeader(http.StatusNoContent)
+	if s.newSession(w, r) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (s *Server) apiLogin(w http.ResponseWriter, r *http.Request) {
@@ -179,13 +192,17 @@ func (s *Server) apiLogin(w http.ResponseWriter, r *http.Request) {
 	s.gate.mu.Lock()
 	s.gate.failures = 0
 	s.gate.mu.Unlock()
-	s.newSession(w, r)
-	w.WriteHeader(http.StatusNoContent)
+	if s.newSession(w, r) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (s *Server) apiLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		s.store.SetSetting(sessionKey(c.Value), "0")
+		if err := s.store.SetSetting(sessionKey(c.Value), "0"); err != nil {
+			s.authStoreError(w, err)
+			return
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)

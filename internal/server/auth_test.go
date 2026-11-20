@@ -161,3 +161,15 @@ func TestHeaderModeTrustsTheProxy(t *testing.T) {
 		t.Fatalf("setup in header mode = %d", c)
 	}
 }
+
+func TestSetupDoesNotSucceedWhenStoreIsUnavailable(t *testing.T) {
+	s, logs := newPasswordServer(t)
+	code := setupCode(t, logs)
+	if err := s.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(s.Public(), "POST", "/api/auth/setup", `{"code":"`+code+`","password":"long enough"}`, jsonSame)
+	if rec.Code != http.StatusInternalServerError || len(rec.Result().Cookies()) != 0 || s.gate.setupCode != code {
+		t.Fatalf("setup on failed store: status=%d cookies=%d", rec.Code, len(rec.Result().Cookies()))
+	}
+}
