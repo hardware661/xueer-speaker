@@ -211,6 +211,24 @@ func (s *Store) UpdateSchedule(e schedule.Entry) error {
 	return nil
 }
 
+// DisableCompletedSchedule disables a one-time entry only if it has not
+// changed since the runner took its snapshot.
+func (s *Store) DisableCompletedSchedule(e schedule.Entry) error {
+	id := e.ID
+	e.ID = 0
+	before, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	e.Disabled = true
+	after, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE schedules SET entry = ? WHERE id = ? AND entry = ?`, string(after), id, string(before))
+	return err
+}
+
 // DeleteSchedule removes an entry.
 func (s *Store) DeleteSchedule(id int64) error {
 	res, err := s.db.Exec(`DELETE FROM schedules WHERE id = ?`, id)

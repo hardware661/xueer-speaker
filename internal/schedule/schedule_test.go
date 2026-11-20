@@ -128,3 +128,19 @@ func TestRunnerRemembersAcrossRestarts(t *testing.T) {
 		t.Fatalf("fired twice across a restart: %+v", got)
 	}
 }
+
+func TestPendingIsNotRecordedUntilAccepted(t *testing.T) {
+	entries := []Entry{{ID: 1, Hour: 8, Action: ActionStop}, {ID: 2, Hour: 8, Action: ActionStop}}
+	now := at("2026-11-16 08:00").Add(15 * time.Second)
+	r := NewRunner()
+	pending := r.Pending(entries, now)
+	if len(pending) != 2 || len(r.Fired()) != 0 {
+		t.Fatalf("pending=%v fired=%v", pending, r.Fired())
+	}
+	r.MarkFired(pending[0])
+	restarted := NewRunnerFrom(r.Fired())
+	got := restarted.Pending(entries, now.Add(15*time.Second))
+	if len(got) != 1 || got[0].Entry.ID != 2 {
+		t.Fatalf("expected only the unaccepted action, got %v", got)
+	}
+}

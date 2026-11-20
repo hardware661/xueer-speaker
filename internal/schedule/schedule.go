@@ -122,16 +122,35 @@ func (r *Runner) Fired() map[int64]time.Time {
 	return out
 }
 
-// Due returns the entries whose slot is in (now-catchUp, now] and has not run.
-func (r *Runner) Due(entries []Entry, now time.Time) []Entry {
-	var out []Entry
+// Occurrence identifies one scheduled action and its deduplication slot.
+type Occurrence struct {
+	Entry Entry
+	slot  time.Time
+}
+
+// Pending finds due actions without recording that they ran.
+func (r *Runner) Pending(entries []Entry, now time.Time) []Occurrence {
+	var out []Occurrence
 	for _, e := range entries {
 		slot, ok := e.Next(now.Add(-catchUp))
 		if !ok || slot.After(now) || r.fired[e.ID].Equal(slot) {
 			continue
 		}
-		r.fired[e.ID] = slot
-		out = append(out, e)
+		out = append(out, Occurrence{Entry: e, slot: slot})
+	}
+	return out
+}
+
+func (r *Runner) MarkFired(occurrence Occurrence) {
+	r.fired[occurrence.Entry.ID] = occurrence.slot
+}
+
+// Due returns and records the due actions in one step.
+func (r *Runner) Due(entries []Entry, now time.Time) []Entry {
+	var out []Entry
+	for _, occurrence := range r.Pending(entries, now) {
+		r.MarkFired(occurrence)
+		out = append(out, occurrence.Entry)
 	}
 	return out
 }

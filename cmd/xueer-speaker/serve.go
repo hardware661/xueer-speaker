@@ -301,34 +301,38 @@ func runSchedules(ctx context.Context, log *slog.Logger, st *store.Store, ann *a
 			log.Warn("schedules", "err", err)
 			continue
 		}
-		due := run.Due(entries, time.Now().In(loc))
-		if len(due) > 0 {
-			if b, err := json.Marshal(run.Fired()); err == nil {
-				st.SetSetting("schedule_fired", string(b))
-			}
-		}
-		for _, e := range due {
-			log.Info("schedule fired", "id", e.ID, "action", e.Action)
-			if e.Date != "" { // just once: done, switch it off
-				off := e
-				off.Disabled = true
-				st.UpdateSchedule(off)
-			}
+		for _, occurrence := range run.Pending(entries, time.Now().In(loc)) {
+			e := occurrence.Entry
+			var err error
 			switch e.Action {
 			case schedule.ActionStop:
-				dev.Stop(ctx)
+				err = dev.Stop(ctx)
 			case schedule.ActionSay:
-				if _, err := ann.Say(ctx, announcer.Request{Text: e.Arg, Source: "schedule", Native: srv.Voice() == "native"}); err != nil {
-					log.Warn("schedule say", "id", e.ID, "err", err)
-				}
+				_, err = ann.Say(ctx, announcer.Request{Text: e.Arg, Source: "schedule", Native: srv.Voice() == "native"})
 			case schedule.ActionPlay:
-				err := srv.Play(ctx, e.Arg)
+				err = srv.Play(ctx, e.Arg)
 				if errors.Is(err, jukebox.ErrHusicClosed) {
 					ann.Say(ctx, announcer.Request{Text: owner + "，到点放歌了，可电脑上的 Husic 没开着，开一下我再放", Source: "schedule"})
-				} else if err != nil {
-					log.Warn("schedule play", "id", e.ID, "err", err)
 				}
 			}
+			if err != nil {
+				log.Warn("scheduled action failed", "id", e.ID, "action", e.Action, "err", err)
+				continue
+			}
+			run.MarkFired(occurrence)
+			b, err := json.Marshal(run.Fired())
+			if err == nil {
+				err = st.SetSetting("schedule_fired", string(b))
+			}
+			if err != nil {
+				log.Error("record scheduled action", "id", e.ID, "err", err)
+			}
+			if e.Date != "" {
+				if err := st.DisableCompletedSchedule(e); err != nil {
+					log.Error("disable completed one-time schedule", "id", e.ID, "err", err)
+				}
+			}
+			log.Info("schedule accepted", "id", e.ID, "action", e.Action)
 		}
 	}
 }
