@@ -62,6 +62,9 @@ type Speech struct {
 	Text     string        // for the native fallback
 	Duration time.Duration // clip length
 	Volume   int           // 0 = leave as is
+	// Relink, if set, makes a fresh /a/ link for the same clip: a line that
+	// waited for the owner to finish dictating outlives its link.
+	Relink func() string
 }
 
 // Outcome reports how a Speech went.

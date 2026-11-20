@@ -37,11 +37,49 @@ type Agent struct {
 	MaxRetry time.Duration
 	// OnState, if set, hears every change: connected to the server or not.
 	OnState func(connected bool)
+	// Dictating, if set, says whether the owner is dictating on this PC
+	// (xueer-ear, see EarDictating). It is read every Watch: the server hears
+	// of each change and holds lines meanwhile, and a line being said stops
+	// when a round starts (the server says it again afterwards).
+	Dictating func() bool
+	Watch     time.Duration // 300 ms
 
-	mu     sync.Mutex
-	paused bool
-	saying sync.WaitGroup // lines being said right now
-	wake   chan struct{}  // closed when paused changes
+	mu      sync.Mutex
+	paused  bool
+	saying  sync.WaitGroup // lines being said right now
+	wake    chan struct{}  // closed when paused changes
+	stops   map[uint64]context.CancelCauseFunc
+	stopSeq uint64
+}
+
+// errDictating is what a line stopped by dictation reports to the server.
+var errDictating = errors.New(pcmouth.Interrupted)
+
+func (a *Agent) dictating() bool { return a.Dictating != nil && a.Dictating() }
+
+// interrupt stops every line being said: the owner started dictating.
+func (a *Agent) interrupt() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, stop := range a.stops {
+		stop(errDictating)
+	}
+}
+
+// EarDictating reads xueer-ear's status.json (%LOCALAPPDATA%\XueerEar):
+// whether a dictation round is on. xueer-ear rewrites the file at least
+// every 5 s while it runs, so a file older than 15 s (xueer-ear quit or
+// hung) counts as not dictating.
+func EarDictating(status []byte, now time.Time) bool {
+	var st struct {
+		Dictating bool  `json:"dictating"`
+		UpdatedMS int64 `json:"updated_ms"`
+	}
+	if json.Unmarshal(status, &st) != nil || !st.Dictating {
+		return false
+	}
+	age := now.Sub(time.UnixMilli(st.UpdatedMS))
+	return age < 15*time.Second && age > -time.Minute
 }
 
 // Drain waits (up to limit) for the lines being said to finish, so quitting
@@ -197,9 +235,31 @@ func (a *Agent) listen(ctx context.Context) error {
 	return errors.New("stream ended")
 }
 
-// say plays one line and reports how it went.
+// say plays one line and reports how it went. While the owner is dictating
+// it is not started; if a round starts while it plays, it stops.
 func (a *Agent) say(ctx context.Context, j pcmouth.Job) {
-	a.done(j.ID, a.fetchAndPlay(ctx, j.URL))
+	if a.dictating() {
+		a.done(j.ID, errDictating)
+		return
+	}
+	ctx, stop := context.WithCancelCause(ctx)
+	a.mu.Lock()
+	if a.stops == nil {
+		a.stops = map[uint64]context.CancelCauseFunc{}
+	}
+	a.stopSeq++
+	n := a.stopSeq
+	a.stops[n] = stop
+	a.mu.Unlock()
+	err := a.fetchAndPlay(ctx, j.URL)
+	if errors.Is(context.Cause(ctx), errDictating) {
+		err = errDictating
+	}
+	a.mu.Lock()
+	delete(a.stops, n)
+	a.mu.Unlock()
+	stop(nil)
+	a.done(j.ID, err)
 }
 
 func (a *Agent) volume(j pcmouth.Job) {
@@ -210,23 +270,52 @@ func (a *Agent) volume(j pcmouth.Job) {
 	a.done(j.ID, err)
 }
 
-// report tells the server the system volume now and whenever it changes
-// (the owner may turn it on the PC), while the stream is up.
+// report tells the server, while the stream is up, the system volume (the
+// owner may turn it on the PC) and whether the owner is dictating, now and
+// whenever either changes; a round starting stops the line being said.
 func (a *Agent) report(ctx context.Context) {
-	if a.GetVolume == nil {
+	if a.GetVolume == nil && a.Dictating == nil {
 		return
 	}
-	last := -1
+	watch := a.Watch
+	if watch <= 0 {
+		watch = 300 * time.Millisecond
+	}
+	tick := time.NewTicker(watch)
+	defer tick.Stop()
+	lastVolume, sentTalk, talking := -1, false, false
+	first := true
+	var volumeAt time.Time
 	for {
-		if v, err := a.GetVolume(); err == nil && v != last {
-			if a.post("/pc/state", map[string]int{"volume": v}) == nil {
-				last = v
+		body := map[string]any{}
+		if a.GetVolume != nil && time.Since(volumeAt) >= 2*time.Second {
+			volumeAt = time.Now()
+			if v, err := a.GetVolume(); err == nil && v != lastVolume {
+				body["volume"] = v
+			}
+		}
+		if a.Dictating != nil {
+			now := a.Dictating()
+			if now && !talking {
+				a.interrupt()
+			}
+			talking = now
+			if first || now != sentTalk {
+				body["dictating"] = now
+			}
+		}
+		if len(body) > 0 && a.post("/pc/state", body) == nil {
+			if v, ok := body["volume"].(int); ok {
+				lastVolume = v
+			}
+			if d, ok := body["dictating"].(bool); ok {
+				sentTalk, first = d, false
 			}
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(2 * time.Second):
+		case <-tick.C:
 		}
 	}
 }

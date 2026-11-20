@@ -118,13 +118,201 @@ func TestNoPCAndWrongKey(t *testing.T) {
 	}
 }
 
-type fakeSpeaker struct{ got []conductor.Speech }
+type fakeSpeaker struct {
+	mu  sync.Mutex
+	got []conductor.Speech
+}
 
 func (f *fakeSpeaker) Speak(sp conductor.Speech) <-chan conductor.Outcome {
+	f.mu.Lock()
 	f.got = append(f.got, sp)
+	f.mu.Unlock()
 	ch := make(chan conductor.Outcome, 1)
 	ch <- conductor.Outcome{Voice: conductor.VoiceEdge}
 	return ch
+}
+
+func (f *fakeSpeaker) said() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.got)
+}
+
+// report posts the PC's state like the Windows program.
+func report(base, body string) error {
+	r, _ := http.NewRequest("POST", base+"/pc/state", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer pc-key")
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 204 {
+		return errors.New(resp.Status)
+	}
+	return nil
+}
+
+// jobs records what the PC was asked to say.
+type jobs struct {
+	mu   sync.Mutex
+	urls []string
+}
+
+func (j *jobs) add(u string) {
+	j.mu.Lock()
+	j.urls = append(j.urls, u)
+	j.mu.Unlock()
+}
+
+func (j *jobs) list() []string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return append([]string(nil), j.urls...)
+}
+
+// Owner 2026-11-20: while the owner speaks into xueer-ear, a line said aloud
+// is typed into what they are saying. Every line waits for the round to end
+// and then they are all said, in the order they came.
+func TestLinesWaitWhileTheOwnerDictatesThenPlayInOrder(t *testing.T) {
+	h := New("pc-key")
+	srv := httptest.NewServer(h.Handler())
+	defer srv.Close()
+	var said jobs
+	stop := agent(t, srv.URL, func(j Job) string { said.add(j.URL); return "" })
+	defer stop()
+	waitOnline(t, h, true)
+	if err := report(srv.URL, `{"dictating":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Dictating() {
+		t.Fatal("dictating not taken")
+	}
+	sp := &fakeSpeaker{}
+	r := h.Route(sp)
+	var outs []<-chan conductor.Outcome
+	for _, u := range []string{"u1", "u2", "u3"} {
+		outs = append(outs, r.Speak(conductor.Speech{URL: u, Duration: time.Millisecond}))
+	}
+	// Xiao Ai's own voice waits too: the speaker is next to the owner.
+	outs = append(outs, r.Speak(conductor.Speech{Text: "原声"}))
+	time.Sleep(300 * time.Millisecond)
+	if n := len(said.list()); n != 0 || sp.said() != 0 {
+		t.Fatalf("spoke while the owner was dictating: pc %d speaker %d", n, sp.said())
+	}
+	if err := report(srv.URL, `{"dictating":false}`); err != nil {
+		t.Fatal(err)
+	}
+	for i, out := range outs[:3] {
+		if o := <-out; o.Voice != VoicePC || o.Err != nil {
+			t.Fatalf("line %d: %+v", i, o)
+		}
+	}
+	if o := <-outs[3]; o.Voice != conductor.VoiceEdge {
+		t.Fatalf("native: %+v", o)
+	}
+	if got := said.list(); strings.Join(got, " ") != "u1 u2 u3" {
+		t.Fatalf("order %v", got)
+	}
+}
+
+// The owner started dictating while a line played: the PC stopped it, and it
+// is said again — with a fresh link, the old one may have expired — once the
+// round ends.
+func TestALineStoppedByDictationIsSaidAgainAfterwards(t *testing.T) {
+	h := New("pc-key")
+	srv := httptest.NewServer(h.Handler())
+	defer srv.Close()
+	var said jobs
+	stop := agent(t, srv.URL, func(j Job) string {
+		said.add(j.URL)
+		if len(said.list()) == 1 {
+			report(srv.URL, `{"dictating":true}`)
+			return Interrupted
+		}
+		return ""
+	})
+	defer stop()
+	waitOnline(t, h, true)
+	out := h.Route(&fakeSpeaker{}).Speak(conductor.Speech{URL: "old", Duration: time.Millisecond,
+		Relink: func() string { return "fresh" }})
+	time.Sleep(300 * time.Millisecond)
+	if got := said.list(); len(got) != 1 {
+		t.Fatalf("said again while dictating: %v", got)
+	}
+	report(srv.URL, `{"dictating":false}`)
+	if o := <-out; o.Voice != VoicePC || o.Err != nil {
+		t.Fatalf("%+v", o)
+	}
+	if got := said.list(); strings.Join(got, " ") != "old fresh" {
+		t.Fatalf("jobs %v", got)
+	}
+}
+
+// The PC goes away mid-round: no one says the owner is dictating any more,
+// so the line goes to the speaker as it would with the PC off.
+func TestPCGoneWhileDictatingHandsTheLineToTheSpeaker(t *testing.T) {
+	h := New("pc-key")
+	srv := httptest.NewServer(h.Handler())
+	defer srv.Close()
+	stop := agent(t, srv.URL, func(Job) string { return "" })
+	waitOnline(t, h, true)
+	report(srv.URL, `{"dictating":true}`)
+	sp := &fakeSpeaker{}
+	out := h.Route(sp).Speak(conductor.Speech{URL: "u", Duration: time.Millisecond})
+	time.Sleep(200 * time.Millisecond)
+	if sp.said() != 0 {
+		t.Fatal("spoke while dictating")
+	}
+	stop()
+	if o := <-out; o.Voice != conductor.VoiceEdge || sp.said() != 1 {
+		t.Fatalf("%+v", o)
+	}
+}
+
+// A round that never ends (xueer-ear hung) holds a line for MaxHold at most.
+func TestALineWaitsAtMostMaxHold(t *testing.T) {
+	h := New("pc-key")
+	h.MaxHold = 200 * time.Millisecond
+	srv := httptest.NewServer(h.Handler())
+	defer srv.Close()
+	stop := agent(t, srv.URL, func(Job) string { return "" })
+	defer stop()
+	waitOnline(t, h, true)
+	report(srv.URL, `{"dictating":true}`)
+	began := time.Now()
+	if o := <-h.Route(&fakeSpeaker{}).Speak(conductor.Speech{URL: "u", Duration: time.Millisecond}); o.Voice != VoicePC {
+		t.Fatalf("%+v", o)
+	}
+	if waited := time.Since(began); waited < 200*time.Millisecond || waited > 2*time.Second {
+		t.Fatalf("waited %s", waited)
+	}
+}
+
+func TestStateTakesVolumeAndDictatingSeparately(t *testing.T) {
+	h := New("pc-key")
+	srv := httptest.NewServer(h.Handler())
+	defer srv.Close()
+	stop := agent(t, srv.URL, func(Job) string { return "" })
+	defer stop()
+	waitOnline(t, h, true)
+	if err := report(srv.URL, `{"dictating":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.State(); ok || !h.Dictating() {
+		t.Fatal("dictating alone must not invent a volume")
+	}
+	if err := report(srv.URL, `{"volume":40}`); err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := h.State(); !ok || st.Volume != 40 || !h.Dictating() {
+		t.Fatalf("volume alone must keep dictating: %+v %v", st, h.Dictating())
+	}
+	for _, bad := range []string{`{}`, `{"volume":101}`, `{"dictating":"yes"}`} {
+		if err := report(srv.URL, bad); err == nil {
+			t.Fatalf("%s accepted", bad)
+		}
+	}
 }
 
 func TestRouteGoesToThePCWhileItIsOn(t *testing.T) {

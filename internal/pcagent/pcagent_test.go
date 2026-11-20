@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -183,4 +184,71 @@ func TestALineFinishesWhenTheStreamDrops(t *testing.T) {
 	if err := <-finished; err != nil {
 		t.Fatalf("line cut: %v", err)
 	}
+}
+
+func TestEarDictatingReadsXueerEarStatus(t *testing.T) {
+	now := time.UnixMilli(1_795_000_000_000)
+	for _, c := range []struct {
+		file string
+		want bool
+	}{
+		{`{"phase":"armed","dictating":true,"updated_ms":1794999995000}`, true},
+		{`{"phase":"ready","dictating":false,"updated_ms":1794999999000}`, false},
+		{`{"dictating":true,"updated_ms":1794999980000}`, false}, // 20 s old: xueer-ear quit or hung
+		{`{"phase":"armed","updated_ms":1794999999000}`, false},  // an older xueer-ear
+		{`{"dictating":true`, false},
+		{``, false},
+	} {
+		if got := EarDictating([]byte(c.file), now); got != c.want {
+			t.Errorf("%s: got %v", c.file, got)
+		}
+	}
+}
+
+// A round starting stops the line being said; the server hears the owner is
+// dictating and gets the line back to say later. A line sent meanwhile is
+// not started.
+func TestDictationStopsTheLineAndIsReported(t *testing.T) {
+	hub := pcmouth.New("pc-key")
+	mux := http.NewServeMux()
+	mux.Handle("/pc/", hub.Handler())
+	mux.HandleFunc("GET /a/x.mp3", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("mp3!")) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	var talking atomic.Bool
+	started := make(chan struct{}, 4)
+	a := &Agent{Base: srv.URL, Key: "pc-key", Retry: 20 * time.Millisecond, Watch: 10 * time.Millisecond,
+		Dictating: talking.Load,
+		Play: func(ctx context.Context, _ []byte) error {
+			started <- struct{}{}
+			<-ctx.Done()
+			return ctx.Err()
+		}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.Run(ctx)
+	wait(t, hub.Online)
+	res := make(chan error, 1)
+	go func() { res <- hub.Play(ctx, srv.URL+"/a/x.mp3", time.Minute) }()
+	<-started
+	talking.Store(true)
+	select {
+	case err := <-res:
+		if !errors.Is(err, pcmouth.ErrInterrupted) {
+			t.Fatalf("err %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the line kept playing")
+	}
+	wait(t, hub.Dictating)
+	if err := hub.Play(ctx, srv.URL+"/a/x.mp3", time.Minute); !errors.Is(err, pcmouth.ErrInterrupted) {
+		t.Fatalf("a line sent while dictating: %v", err)
+	}
+	select {
+	case <-started:
+		t.Fatal("started a line while dictating")
+	default:
+	}
+	talking.Store(false)
+	wait(t, func() bool { return !hub.Dictating() })
 }

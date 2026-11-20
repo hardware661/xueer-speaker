@@ -86,12 +86,15 @@ type Status struct {
 	Paused  bool   `json:"paused,omitempty"`  // the music is paused
 	Where   string `json:"where,omitempty"`   // who plays music: speaker / pc
 	PC      bool   `json:"pc"`                // the owner's PC is on and takes every line
-	Husic   bool   `json:"husic"`             // a Husic is open (the PC's exe or a browser tab)
-	HusicOn bool   `json:"husic_wired"`       // Husic is configured at all
-	Voice   string `json:"voice"`             // auto / native
-	Error   string `json:"error,omitempty"`   // why the speaker could not be read
-	DND     bool   `json:"dnd"`               // do-not-disturb: lines are kept, not spoken
-	DNDTill string `json:"dnd_until,omitempty"`
+	// Dictating: the owner is speaking into xueer-ear on the PC; lines wait
+	// until the round ends.
+	Dictating bool   `json:"dictating,omitempty"`
+	Husic     bool   `json:"husic"`           // a Husic is open (the PC's exe or a browser tab)
+	HusicOn   bool   `json:"husic_wired"`     // Husic is configured at all
+	Voice     string `json:"voice"`           // auto / native
+	Error     string `json:"error,omitempty"` // why the speaker could not be read
+	DND       bool   `json:"dnd"`             // do-not-disturb: lines are kept, not spoken
+	DNDTill   string `json:"dnd_until,omitempty"`
 }
 
 // Config is the server's secrets and parts.

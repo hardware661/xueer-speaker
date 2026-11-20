@@ -1,5 +1,10 @@
 # 更新记录
 
+## v1.2.0
+
+- 和雪耳一起用：电脑上的雪耳在听写时，要念的话先排队，这一轮说完再按顺序念；正在念的那句被听写打断后，说完再从头念。面板显示「等主人说完」，`speaker` 的 `status` 多了 `dictating`。
+- 电脑端 `/pc/state` 可以单独报音量或是否在听写。
+
 ## v1.1.0
 
 - 不需要服务器也能用：下载一个程序，`xueer-speaker login` 登录小米，就能让小爱用原声说话；`xueer-speaker mcp` 直接给 Claude Code、Codex 用。Linux / macOS / Windows 各一个单文件，`install.sh` 一行装好。

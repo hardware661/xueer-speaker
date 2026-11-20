@@ -3,7 +3,8 @@
 // xueer-speaker-pc is the speaker's mouth on a Windows PC: it keeps the
 // server's listen stream open, so while the PC is on every line plays here
 // (out of whatever the PC plays through, e.g. the speaker over Bluetooth),
-// and sets the PC's volume. The tray app (pc/, XueerSpeaker.exe) runs it
+// and sets the PC's volume. While the owner dictates with xueer-ear on this
+// PC, lines wait until the round ends (ear.go). The tray app (pc/, XueerSpeaker.exe) runs it
 // with -engine and talks to it over stdio: it reads "pause" / "resume" lines
 // and writes one JSON line per state change. Run by hand it works the same,
 // headless.
@@ -70,7 +71,8 @@ func main() {
 	out := &output{}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = systemProxy
-	a := &pcagent.Agent{Base: base, Key: strings.TrimSpace(string(key)), Play: out.Play, GetVolume: getVolume, SetVolume: setVolume, Log: logger, Client: &http.Client{Transport: tr}}
+	a := &pcagent.Agent{Base: base, Key: strings.TrimSpace(string(key)), Play: out.Play, GetVolume: getVolume, SetVolume: setVolume, Log: logger, Client: &http.Client{Transport: tr},
+		Dictating: earDictating}
 	if len(os.Args) > 1 && os.Args[1] == "-engine" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)

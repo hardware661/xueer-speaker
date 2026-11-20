@@ -2,6 +2,11 @@
 // keeps one listen stream open; while it is open every line plays on the PC, and the speaker is only
 // used when it is not. The PC fetches the clip from /a/ itself and answers
 // with done.
+//
+// The PC also says when the owner is dictating (xueer-ear, the voice input
+// on the same PC): a line said then would be typed into what the owner is
+// saying, so every line waits — the PC's and the speaker's — until the
+// round ends, and a line already playing stops and is said again after.
 package pcmouth
 
 import (
@@ -23,7 +28,14 @@ import (
 var (
 	ErrOffline = errors.New("pcmouth: PC not connected")
 	ErrTimeout = errors.New("pcmouth: PC did not finish the line in time")
+	// ErrInterrupted: the owner started dictating, so the PC stopped (or did
+	// not start) the line; it is said again when the round ends.
+	ErrInterrupted = errors.New("pcmouth: the owner started dictating")
 )
+
+// Interrupted is what the PC answers for a line it stopped because the owner
+// started dictating.
+const Interrupted = "owner dictating"
 
 // Job is one thing for the PC to do: say a line (Kind "say", URL) or set
 // the system volume (Kind "volume", Volume 0–100).
@@ -49,21 +61,23 @@ func (c *conn) close() { c.once.Do(func() { close(c.gone) }) }
 
 // Hub is safe for concurrent use.
 type Hub struct {
-	Grace time.Duration // on top of the clip length before giving up (10 s)
-	Ping  time.Duration // keep-alive on the listen stream (15 s)
+	Grace   time.Duration // on top of the clip length before giving up (10 s)
+	Ping    time.Duration // keep-alive on the listen stream (15 s)
+	MaxHold time.Duration // longest a line waits for the owner to finish dictating (2 h)
 
 	key  string
 	play sync.Mutex // one line at a time, like the speaker
 
-	mu      sync.Mutex
-	cur     *conn
-	state   *State
-	waiting map[string]chan string
+	mu        sync.Mutex
+	cur       *conn
+	state     *State
+	dictating bool // the PC says the owner is dictating
+	waiting   map[string]chan string
 }
 
 // New returns a Hub accepting the PC with key.
 func New(key string) *Hub {
-	return &Hub{Grace: 10 * time.Second, Ping: 15 * time.Second, key: key, waiting: map[string]chan string{}}
+	return &Hub{Grace: 10 * time.Second, Ping: 15 * time.Second, MaxHold: 2 * time.Hour, key: key, waiting: map[string]chan string{}}
 }
 
 // Online reports whether the PC is connected.
@@ -71,6 +85,28 @@ func (h *Hub) Online() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.cur != nil
+}
+
+// Dictating reports whether the owner is dictating on the PC right now.
+// Unknown (the PC is not connected) is false.
+func (h *Hub) Dictating() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cur != nil && h.dictating
+}
+
+// holdPoll is how often a waiting line looks whether the round has ended.
+const holdPoll = 100 * time.Millisecond
+
+// hold waits while the owner is dictating, at most MaxHold, and reports
+// whether it waited.
+func (h *Hub) hold() bool {
+	waited := false
+	for deadline := time.Now().Add(h.MaxHold); h.Dictating() && time.Now().Before(deadline); {
+		waited = true
+		time.Sleep(holdPoll)
+	}
+	return waited
 }
 
 // State is the PC's last report; false while it is not connected or has
@@ -137,10 +173,13 @@ func (h *Hub) run(ctx context.Context, j Job, limit time.Duration) error {
 	// for done rather than giving the line to the speaker too (heard twice).
 	select {
 	case e := <-done:
-		if e != "" {
-			return fmt.Errorf("pcmouth: %s", e)
+		switch e {
+		case "":
+			return nil
+		case Interrupted:
+			return ErrInterrupted
 		}
-		return nil
+		return fmt.Errorf("pcmouth: %s", e)
 	case <-t.C:
 		h.drop(c)
 		return ErrTimeout
@@ -152,7 +191,7 @@ func (h *Hub) run(ctx context.Context, j Job, limit time.Duration) error {
 func (h *Hub) drop(c *conn) {
 	h.mu.Lock()
 	if h.cur == c {
-		h.cur, h.state = nil, nil
+		h.cur, h.state, h.dictating = nil, nil, false
 	}
 	h.mu.Unlock()
 	c.close()
@@ -168,15 +207,27 @@ func (h *Hub) Handler() http.Handler {
 	return mux
 }
 
+// report takes {"volume": 0–100, "dictating": bool}; either may be left out
+// (an older PC sends only the volume, and a PC that cannot read it only
+// dictating).
 func (h *Hub) report(w http.ResponseWriter, r *http.Request) {
-	var st State
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&st); err != nil || st.Volume < 0 || st.Volume > 100 {
+	var in struct {
+		Volume    *int  `json:"volume"`
+		Dictating *bool `json:"dictating"`
+	}
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in)
+	if err != nil || in.Volume == nil && in.Dictating == nil || in.Volume != nil && (*in.Volume < 0 || *in.Volume > 100) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
 	h.mu.Lock()
 	if h.cur != nil {
-		h.state = &st
+		if in.Volume != nil {
+			h.state = &State{Volume: *in.Volume}
+		}
+		if in.Dictating != nil {
+			h.dictating = *in.Dictating
+		}
 	}
 	h.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
@@ -202,7 +253,8 @@ func (h *Hub) listen(w http.ResponseWriter, r *http.Request) {
 	c := &conn{jobs: make(chan Job), gone: make(chan struct{})}
 	h.mu.Lock()
 	old := h.cur
-	h.cur = c // the newest PC connection wins
+	h.cur = c           // the newest PC connection wins
+	h.dictating = false // until this connection says otherwise
 	h.mu.Unlock()
 	if old != nil {
 		old.close()
@@ -273,25 +325,57 @@ type Speaker interface {
 
 // Route returns a Speaker that plays every rendered line on the PC while it
 // is connected and hands the rest to speaker: lines in Xiao Ai's own voice
-// (there is no clip to send) and lines the PC failed to play.
-func (h *Hub) Route(speaker Speaker) Speaker { return router{h, speaker} }
+// (there is no clip to send) and lines the PC failed to play. Lines are
+// said one after another in the order they came; while the owner is
+// dictating, every line waits until the round ends.
+func (h *Hub) Route(speaker Speaker) Speaker {
+	r := &router{h: h, sp: speaker, q: make(chan routed, 256)}
+	go r.run()
+	return r
+}
+
+type routed struct {
+	sp  conductor.Speech
+	out chan conductor.Outcome
+}
 
 type router struct {
 	h  *Hub
 	sp Speaker
+	q  chan routed
 }
 
-func (r router) Speak(sp conductor.Speech) <-chan conductor.Outcome {
-	if sp.URL == "" || !r.h.Online() {
-		return r.sp.Speak(sp)
-	}
+func (r *router) Speak(sp conductor.Speech) <-chan conductor.Outcome {
 	out := make(chan conductor.Outcome, 1)
-	go func() {
-		if err := r.h.Play(context.Background(), sp.URL, sp.Duration); err != nil {
-			out <- <-r.sp.Speak(sp)
-			return
-		}
-		out <- conductor.Outcome{Voice: VoicePC}
-	}()
+	r.q <- routed{sp: sp, out: out}
 	return out
+}
+
+func (r *router) run() {
+	for req := range r.q {
+		req.out <- r.say(req.sp)
+	}
+}
+
+// maxRetakes bounds how often one line is stopped by dictation and said again.
+const maxRetakes = 5
+
+func (r *router) say(sp conductor.Speech) conductor.Outcome {
+	for take := 0; ; take++ {
+		// A line that waited may have outlived its /a/ link.
+		if r.h.hold() && sp.Relink != nil {
+			sp.URL = sp.Relink()
+		}
+		if sp.URL == "" || !r.h.Online() {
+			return <-r.sp.Speak(sp)
+		}
+		err := r.h.Play(context.Background(), sp.URL, sp.Duration)
+		switch {
+		case err == nil:
+			return conductor.Outcome{Voice: VoicePC}
+		case errors.Is(err, ErrInterrupted) && take < maxRetakes:
+			continue // said again once the round ends
+		}
+		return <-r.sp.Speak(sp)
+	}
 }

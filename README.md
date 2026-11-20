@@ -138,6 +138,17 @@ curl -H "Authorization: Bearer <bot 钥匙>" -H "Content-Type: application/json"
 
 需要 Windows 10/11 和 Microsoft Edge WebView2（Windows 11 自带）。
 
+### 和雪耳一起用：你说话时先不出声
+
+[雪耳](https://github.com/hardware661/xueer-ear) 是同一台电脑上的语音输入。用它说话时，音箱念的话会被麦克风收进去，打进你正在说的那段话里。装了托盘的电脑上，两个程序会自动配合：
+
+- 雪耳在听写的这一轮里，所有要念的话（AI、脚本、定时，电脑念的和音箱原声）都先排队，面板上显示「等主人说完」。
+- 这一轮结束（雪耳 10 秒没听到新字自己收起，或者你手动结束），排队的话按顺序马上念。
+- 正在念的时候你开始听写，这句马上停，说完以后从头再念一遍。
+- 雪耳没装、没开或者卡住了，照常念。最多等 2 小时。
+
+不用配置。托盘读的是雪耳的 `%LOCALAPPDATA%\XueerEar\status.json`：`dictating` 为真，并且 15 秒内更新过，就算在说话。别的语音输入程序照这个格式写，也能让 speaker 等它。
+
 ### 喊一句放歌（接 Husic）
 
 1. 给 Husic 开一个服务钥匙：启动 Husic 时加 `HUSIC_SERVICE_KEY_FILE=/path/to/service.key`（见 Husic 的部署文档）。

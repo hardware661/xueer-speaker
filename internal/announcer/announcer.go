@@ -167,6 +167,7 @@ func (a *Announcer) Say(ctx context.Context, req Request) (Result, error) {
 		// Edge is down: Xiao Ai's own voice still calls the owner.
 	default:
 		sp.URL, sp.Duration = a.pub.Speech(clip.Path), clip.Duration
+		sp.Relink = func() string { return a.pub.Speech(clip.Path) }
 	}
 	e := &Entry{ID: newID(), At: a.now(), Source: req.Source, Text: text}
 	a.mu.Lock()

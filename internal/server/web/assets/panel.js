@@ -110,7 +110,7 @@ async function status() {
   light("l-mi", s.login === "ok" ? "ok" : s.login === "renewing" ? "warn" : "bad");
   light("l-pc", s.pc ? "ok" : "");
   pcOn = !!s.pc;
-  $("route").textContent = s.voice === "native" ? "小爱原声 · 音箱念" : s.pc ? "电脑开着 · 从电脑出声" : "电脑没开 · 音箱念";
+  $("route").textContent = s.dictating ? "主人在说话 · 说完再念" : s.voice === "native" ? "小爱原声 · 音箱念" : s.pc ? "电脑开着 · 从电脑出声" : "电脑没开 · 音箱念";
   light("l-husic", s.husic ? "ok" : ""); $("l-husic").hidden = !s.husic_wired;
   dndOn = !!s.dnd;
   $("dnd-btn").setAttribute("aria-pressed", String(dndOn));
@@ -163,7 +163,7 @@ async function history() {
     const li = el("li", "msg");
     if (it.say) {
       const s = it.say;
-      const how = s.err ? "没念成" : s.voice === "quiet" ? "勿扰中 · 没念" : s.voice === "pc" ? "电脑" : s.voice === "edge" ? "音箱 · 晓晓" : s.voice === "native" ? "音箱 · 原声" : "排队中";
+      const how = s.err ? "没念成" : s.voice === "quiet" ? "勿扰中 · 没念" : s.voice === "pc" ? "电脑" : s.voice === "edge" ? "音箱 · 晓晓" : s.voice === "native" ? "音箱 · 原声" : lastStatus && lastStatus.dictating ? "等主人说完" : "排队中";
       const meta = el("div", "meta");
       meta.append(el("span", null, src(s.source)), el("span", null, hm(s.at)), el("span", s.err ? "err" : null, how));
       if (s.err) meta.title = zhTitle(s.err);

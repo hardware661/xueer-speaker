@@ -647,6 +647,7 @@ func (d *device) Snapshot(ctx context.Context) server.Status {
 func (d *device) fill(ctx context.Context, s *server.Status) {
 	s.State, s.Playing = string(d.cond.State()), d.cond.Playing()
 	s.PC = d.pc != nil && d.pc.Online()
+	s.Dictating = d.pc != nil && d.pc.Dictating()
 	s.Where = ""
 	if s.Playing != "" {
 		s.Where, s.Paused = "speaker", s.State == string(conductor.StateUserPaused)
